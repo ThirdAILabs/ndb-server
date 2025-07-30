@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"ndb-server/internal/ndb"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -389,9 +390,15 @@ func (s *Server) CreateCheckpoint() (NDBCheckpointResponse, error) {
 		return NDBCheckpointResponse{}, CodedError(http.StatusInternalServerError, fmt.Errorf("failed to save ndb state: %w", err))
 	}
 
+	sources, err := s.ndb.Sources()
+	if err != nil {
+		slog.Error("failed to get ndb sources", "version", newVersion, "error", err)
+		return NDBCheckpointResponse{}, fmt.Errorf("failed to get ndb sources: %w", err)
+	}
+
 	slog.Info("successfully saved ndb state", "version", newVersion, "path", localVersionPath)
 
-	if err := s.checkpointer.Upload(newVersion, localVersionPath); err != nil {
+	if err := s.checkpointer.Upload(newVersion, localVersionPath, sources); err != nil {
 		slog.Error("failed to upload checkpoint", "version", newVersion, "error", err)
 		return NDBCheckpointResponse{}, fmt.Errorf("failed to upload checkpoint (version=%v): %w", newVersion, err)
 	}
@@ -462,6 +469,10 @@ func (s *Server) PullCheckpoints(interval time.Duration) {
 			if err != nil {
 				slog.Error("failed to load checkpoint into ndb", "version", latest, "error", err)
 				continue
+			}
+
+			if err := os.RemoveAll(localVersionPath(s.currVersion)); err != nil {
+				slog.Error("failed to remove old checkpoint files", "version", s.currVersion, "error", err)
 			}
 
 			s.lock.Lock()
