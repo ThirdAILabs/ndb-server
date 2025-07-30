@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	const licensePath = "../../../.test_license/thirdai.license"
+	const licensePath = "../../.test_license/thirdai.license"
 	if err := ndb.SetLicensePath(licensePath); err != nil {
 		panic(err)
 	}
@@ -178,14 +178,30 @@ func TestConstrainedSearch(t *testing.T) {
 
 	checkQuery(t, db, "a b c d e", nil, []uint64{4, 3, 2, 1, 0})
 
-	constraints := ndb.Constraints{
+	constraints1 := ndb.Constraints{
 		"k1": ndb.GreaterThan(3.0),
 		"k2": ndb.EqualTo(false),
 		"k3": ndb.EqualTo(7),
 		"k4": ndb.LessThan("peach"),
 	}
 
-	checkQuery(t, db, "a b c d e", constraints, []uint64{0})
+	checkQuery(t, db, "a b c d e", constraints1, []uint64{0})
+
+	constraints2 := ndb.Constraints{
+		"k4": ndb.AnyOf([]any{"apple", "banana"}),
+	}
+	checkQuery(t, db, "a b c d e", constraints2, []uint64{1, 0})
+
+	constraints3 := ndb.Constraints{
+		"k4": ndb.Substring("apple"),
+	}
+	checkQuery(t, db, "a b c d e", constraints3, []uint64{4, 0})
+
+	constraints4 := ndb.Constraints{
+		"k4": ndb.Substring("apple"),
+		"k1": ndb.AnyOf([]any{5.2, 2.9, 4.7}),
+	}
+	checkQuery(t, db, "a b c d e", constraints4, []uint64{4})
 }
 
 func intString(start, end int) string {
