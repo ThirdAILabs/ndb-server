@@ -46,11 +46,8 @@ func RestHandler(handler func(r *http.Request) (any, error)) http.HandlerFunc {
 			var cerr *codedError
 			if errors.As(err, &cerr) {
 				http.Error(w, err.Error(), cerr.code)
-				if cerr.code == http.StatusInternalServerError {
-					slog.Error("internal server error received in endpoint", "error", err)
-				}
 			} else {
-				slog.Error("recieved non coded error from endpoint", "error", err)
+				slog.Error("received non coded error from endpoint", "error", err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 
 			}

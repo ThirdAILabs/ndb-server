@@ -151,6 +151,8 @@ func (ndb *NeuralDB) Insert(document, docId string, chunks []string, metadata []
 
 type Constraint interface {
 	addToConstraints(constraints *C.Constraints_t, key string) error
+
+	debug() string
 }
 
 type binaryConstraintOp int8
@@ -180,6 +182,21 @@ func (c binaryConstraint) addToConstraints(constraints *C.Constraints_t, key str
 	C.Constraints_add_binary_constraint(constraints, C.int(c.op), keyCStr, metadataValue)
 
 	return nil
+}
+
+func (c binaryConstraint) debug() string {
+	switch c.op {
+	case BinaryConstraintEq:
+		return fmt.Sprintf("EqualTo(%T:%v)", c.value, c.value)
+	case BinaryConstraintLt:
+		return fmt.Sprintf("LessThan(%T:%v)", c.value, c.value)
+	case BinaryConstraintGt:
+		return fmt.Sprintf("GreaterThan(%T:%v)", c.value, c.value)
+	case BinaryConstraintSubstr:
+		return fmt.Sprintf("Substring(%T:%v)", c.value, c.value)
+	default:
+		return fmt.Sprintf("Unknown(%T:%v)", c.value, c.value)
+	}
 }
 
 func EqualTo(value interface{}) Constraint {
@@ -221,11 +238,39 @@ func (c anyOfConstraint) addToConstraints(constraints *C.Constraints_t, key stri
 	return nil
 }
 
+func (c anyOfConstraint) debug() string {
+	s := strings.Builder{}
+	s.WriteString("AnyOf(")
+	for i, v := range c.values {
+		if i > 0 {
+			s.WriteString(", ")
+		}
+		s.WriteString(fmt.Sprintf("%T:%v", v, v))
+	}
+	s.WriteString(")")
+	return s.String()
+}
+
 func AnyOf(values []interface{}) Constraint {
 	return anyOfConstraint{values: values}
 }
 
-type Constraints = map[string]Constraint
+type Constraints map[string]Constraint
+
+func (c *Constraints) String() string {
+	s := strings.Builder{}
+	s.WriteString("Constraints{")
+	first := true
+	for k, v := range *c {
+		if !first {
+			s.WriteString(", ")
+		}
+		s.WriteString(fmt.Sprintf("%s: %s", k, v.debug()))
+		first = false
+	}
+	s.WriteString("}")
+	return s.String()
+}
 
 func newConstraints(constraints Constraints) (*C.Constraints_t, error) {
 	constraintsMap := C.Constraints_new()

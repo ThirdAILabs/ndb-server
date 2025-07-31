@@ -3,7 +3,6 @@ package api
 import (
 	"fmt"
 	"ndb-server/internal/ndb"
-	"path/filepath"
 )
 
 type Version int
@@ -18,11 +17,6 @@ type Checkpointer interface {
 
 func versionName(version Version) string {
 	return fmt.Sprintf("ndb_%d", version)
-}
-
-func localVersionPath(version Version) string {
-	const localCheckpoints = "./checkpoints"
-	return filepath.Join(localCheckpoints, versionName(version))
 }
 
 func latestVersion(versions []Version) Version {

@@ -15,69 +15,140 @@ const (
 	LessThanType    = "LessThan"
 )
 
-func parseConstraint(raw map[string]interface{}) (ndb.Constraint, error) {
-	if constraintType, ok := raw["constraint_type"].(string); ok {
-		switch constraintType {
-		case AnyOfType:
-			if values, ok := raw["values"].([]interface{}); ok {
-				return ndb.AnyOf(values), nil
-			}
-			return nil, fmt.Errorf("missing or invalid 'values' argument for AnyOf constraint")
-		case EqualToType:
-			if value, ok := raw["value"]; ok {
-				return ndb.EqualTo(value), nil
-			}
-			return nil, fmt.Errorf("missing or invalid 'value' argument for EqualTo constraint")
-		case SubstringType:
-			if value, ok := raw["value"].(string); ok {
-				return ndb.Substring(value), nil
-			}
-			return nil, fmt.Errorf("missing or invalid 'value' argument for Substring constraint")
-		case GreaterThanType:
-			if minimum, ok := raw["minimum"]; ok {
-				return ndb.GreaterThan(minimum), nil
-			}
-			return nil, fmt.Errorf("missing or invalid 'minimum' argument for GreaterThan constraint")
-		case LessThanType:
-			if maximum, ok := raw["maximum"]; ok {
-				return ndb.LessThan(maximum), nil
-			}
-			return nil, fmt.Errorf("missing or invalid 'maximum' argument for LessThan constraint")
-		default:
-			return nil, fmt.Errorf("unknown constraint_type: %s", constraintType)
-		}
-	}
+const (
+	MetadataTypeString = "string"
+	MetadataTypeInt    = "integer"
+	MetadataTypeFloat  = "float"
+	MetadataTypeBool   = "boolean"
+)
 
-	return nil, fmt.Errorf("invalid or missing constraint_type field")
+type Constraint struct {
+	ConstraintType string `json:"constraint_type"`
+	Value          any    `json:"value"`
+	Dtype          string `json:"dtype"`
 }
 
-type Constraints ndb.Constraints
+func asSliceAny[T any](slice []T) []any {
+	result := make([]any, len(slice))
+	for i, v := range slice {
+		result[i] = v
+	}
+	return result
+}
 
-func (c *Constraints) UnmarshalJSON(data []byte) error {
-	var raw map[string]map[string]interface{}
+func (c *Constraint) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ConstraintType string          `json:"constraint_type"`
+		Value          json.RawMessage `json:"value"`
+		Dtype          string          `json:"dtype"`
+	}
+
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
+		return fmt.Errorf("failed to unmarshal constraint value: %w", err)
 	}
 
-	constraints := make(ndb.Constraints)
+	c.ConstraintType = raw.ConstraintType
+	c.Dtype = raw.Dtype
 
-	for key, constraint := range raw {
-		constraint, err := parseConstraint(constraint)
-		if err != nil {
-			return fmt.Errorf("failed to parse constraint for key %s: %w", key, err)
+	if raw.ConstraintType == AnyOfType {
+		switch raw.Dtype {
+		case MetadataTypeString:
+			var value []string
+			if err := json.Unmarshal(raw.Value, &value); err != nil {
+				return fmt.Errorf("failed to unmarshal string value: %w", err)
+			}
+			c.Value = asSliceAny(value)
+		case MetadataTypeInt:
+			var value []int
+			if err := json.Unmarshal(raw.Value, &value); err != nil {
+				return fmt.Errorf("failed to unmarshal int value: %w", err)
+			}
+			c.Value = asSliceAny(value)
+		case MetadataTypeFloat:
+			var value []float64
+			if err := json.Unmarshal(raw.Value, &value); err != nil {
+				return fmt.Errorf("failed to unmarshal float value: %w", err)
+			}
+			c.Value = asSliceAny(value)
+		case MetadataTypeBool:
+			var value []bool
+			if err := json.Unmarshal(raw.Value, &value); err != nil {
+				return fmt.Errorf("failed to unmarshal bool value: %w", err)
+			}
+			c.Value = asSliceAny(value)
+		default:
+			return fmt.Errorf("unknown dtype: %s", raw.Dtype)
 		}
-		constraints[key] = constraint
+	} else {
+		switch raw.Dtype {
+		case MetadataTypeString:
+			var value string
+			if err := json.Unmarshal(raw.Value, &value); err != nil {
+				return fmt.Errorf("failed to unmarshal string value: %w", err)
+			}
+			c.Value = value
+		case MetadataTypeInt:
+			var value int
+			if err := json.Unmarshal(raw.Value, &value); err != nil {
+				return fmt.Errorf("failed to unmarshal int value: %w", err)
+			}
+			c.Value = value
+		case MetadataTypeFloat:
+			var value float64
+			if err := json.Unmarshal(raw.Value, &value); err != nil {
+				return fmt.Errorf("failed to unmarshal float value: %w", err)
+			}
+			c.Value = value
+		case MetadataTypeBool:
+			var value bool
+			if err := json.Unmarshal(raw.Value, &value); err != nil {
+				return fmt.Errorf("failed to unmarshal bool value: %w", err)
+			}
+			c.Value = value
+		default:
+			return fmt.Errorf("unknown dtype: %s", raw.Dtype)
+		}
 	}
-
-	*c = constraints
 
 	return nil
 }
 
+func (c *Constraint) asNDBConstraint() (ndb.Constraint, error) {
+	switch c.ConstraintType {
+	case AnyOfType:
+		if values, ok := c.Value.([]any); ok {
+			return ndb.AnyOf(values), nil
+		}
+		return nil, fmt.Errorf("missing or invalid 'value' argument for AnyOf constraint")
+	case EqualToType:
+		if c.Value != nil {
+			return ndb.EqualTo(c.Value), nil
+		}
+		return nil, fmt.Errorf("missing or invalid 'value' argument for EqualTo constraint")
+	case SubstringType:
+		if c.Value != nil {
+			return ndb.Substring(c.Value), nil
+		}
+		return nil, fmt.Errorf("missing or invalid 'value' argument for Substring constraint")
+	case GreaterThanType:
+		if c.Value != nil {
+			return ndb.GreaterThan(c.Value), nil
+		}
+		return nil, fmt.Errorf("missing or invalid 'value' argument for GreaterThan constraint")
+	case LessThanType:
+		if c.Value != nil {
+			return ndb.LessThan(c.Value), nil
+		}
+		return nil, fmt.Errorf("missing or invalid 'value' argument for LessThan constraint")
+	default:
+		return nil, fmt.Errorf("unknown constraint_type: %s", c.ConstraintType)
+	}
+}
+
 type NDBSearchParams struct {
-	Query       string      `json:"query"`
-	TopK        int         `json:"top_k"`
-	Constraints Constraints `json:"constraints"`
+	Query       string                `json:"query"`
+	TopK        int                   `json:"top_k"`
+	Constraints map[string]Constraint `json:"constraints"`
 }
 
 type Reference struct {
@@ -90,16 +161,9 @@ type Reference struct {
 }
 
 type NDBSearchResponse struct {
-	Query     string      `json:"query_text"`
-	Reference []Reference `json:"references"`
+	Query      string      `json:"query_text"`
+	References []Reference `json:"references"`
 }
-
-const (
-	MetadataTypeString = "string"
-	MetadataTypeInt    = "integer"
-	MetadataTypeFloat  = "float"
-	MetadataTypeBool   = "boolean"
-)
 
 type NDBDocumentMetadata struct {
 	Filename      string            `json:"filename"`

@@ -192,7 +192,7 @@ func TestConstrainedSearch(t *testing.T) {
 
 	constraints4 := ndb.Constraints{
 		"k4": ndb.Substring("apple"),
-		"k1": ndb.AnyOf([]any{5.2, 2.9, 4.7}),
+		"k1": ndb.AnyOf([]any{3.1, 2.9, 4.7}),
 	}
 	checkQuery(t, db, "a b c d e", constraints4, []uint64{4})
 }
