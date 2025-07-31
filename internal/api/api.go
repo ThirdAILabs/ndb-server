@@ -1,8 +1,6 @@
 package api
 
 import (
-	"bytes"
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,8 +10,6 @@ import (
 	"ndb-server/internal/ndb"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -153,92 +149,6 @@ func getMetadataAndContent(r *http.Request) ([]byte, NDBDocumentMetadata, error)
 	return contents, metadata, nil
 }
 
-func parseContent(data []byte, textCols []string, metadataTypes map[string]string, docMetadata map[string]any) ([]string, []map[string]any, error) {
-	reader := csv.NewReader(bytes.NewReader(data))
-
-	rows, err := reader.ReadAll()
-	if err != nil {
-		return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "error reading CSV header: %w", err)
-	}
-
-	if len(rows) < 1 {
-		return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "CSV file is empty")
-	}
-
-	header := rows[0]
-
-	colToIdx := make(map[string]int, len(header))
-	for i, col := range header {
-		colToIdx[col] = i
-	}
-
-	for _, col := range textCols {
-		if _, ok := colToIdx[col]; !ok {
-			return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "text column %s not found in CSV header", col)
-		}
-	}
-
-	metdataParsers := make(map[string]func(string) (any, error))
-	for col, dtype := range metadataTypes {
-		if _, ok := colToIdx[col]; !ok {
-			return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "metadata column %s not found in CSV header", col)
-		}
-
-		switch dtype {
-		case MetadataTypeString:
-			metdataParsers[col] = func(value string) (any, error) {
-				return value, nil
-			}
-		case MetadataTypeInt:
-			metdataParsers[col] = func(value string) (any, error) {
-				return strconv.Atoi(value)
-			}
-		case MetadataTypeFloat:
-			metdataParsers[col] = func(value string) (any, error) {
-				return strconv.ParseFloat(value, 32)
-			}
-		case MetadataTypeBool:
-			metdataParsers[col] = func(value string) (any, error) {
-				cleaned := strings.ToLower(strings.TrimSpace(value))
-				if cleaned == "true" || cleaned == "1" {
-					return true, nil
-				} else if cleaned == "false" || cleaned == "0" {
-					return false, nil
-				}
-				return nil, fmt.Errorf("invalid boolean value: %s, expected true/1 or false/0", value)
-			}
-		}
-	}
-
-	chunks := make([]string, 0, len(rows)-1)
-	metadata := make([]map[string]any, 0, len(rows)-1)
-
-	for _, row := range rows[1:] {
-		chunk := strings.Builder{}
-		for _, col := range textCols {
-			chunk.WriteString(row[colToIdx[col]])
-			chunk.WriteRune(' ')
-		}
-		chunks = append(chunks, strings.TrimSpace(chunk.String()))
-
-		meta := make(map[string]any, len(metdataParsers)+len(docMetadata))
-		for k, v := range docMetadata {
-			meta[k] = v
-		}
-		for col, parser := range metdataParsers {
-			value := row[colToIdx[col]]
-			parsedValue, err := parser(value)
-			if err != nil {
-				return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "error parsing metadata column %s value %s: %w", col, value, err)
-			}
-			meta[col] = parsedValue
-		}
-		metadata = append(metadata, meta)
-	}
-
-	return chunks, metadata, nil
-}
-
 func (s *Server) Insert(r *http.Request) (any, error) {
 
 	if !s.leader {
@@ -252,7 +162,7 @@ func (s *Server) Insert(r *http.Request) (any, error) {
 
 	slog.Info("inserting document", "filename", metadata.Filename, "source_id", metadata.SourceId, "text_columns", metadata.TextColumns, "metadata_dtypes", metadata.MetadataTypes, "doc_metadata", metadata.DocMetadata)
 
-	chunks, chunkMetadata, err := parseContent(content, metadata.TextColumns, metadata.MetadataTypes, metadata.DocMetadata)
+	chunks, chunkMetadata, err := ParseContent(content, metadata.TextColumns, metadata.MetadataTypes, metadata.DocMetadata)
 	if err != nil {
 		slog.Error("error parsing document content", "error", err, "filename", metadata.Filename)
 		return nil, err
