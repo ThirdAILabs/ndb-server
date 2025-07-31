@@ -88,10 +88,6 @@ Sources_t *NeuralDB_sources(NeuralDB_t *ndb, const char **err_ptr);
 void NeuralDB_save(NeuralDB_t *ndb, const char *save_path,
                    const char **err_ptr);
 
-void set_license_key(const char *key, const char **err_ptr);
-
-void set_license_path(const char *path, const char **err_ptr);
-
 #ifdef __cplusplus
 }
 #endif

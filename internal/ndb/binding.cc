@@ -1,5 +1,4 @@
 #include "binding.h"
-#include "Licensing.h"
 #include "OnDiskNeuralDB.h"
 #include <algorithm>
 #include <cstring>
@@ -354,24 +353,6 @@ void NeuralDB_save(NeuralDB_t *ndb, const char *save_path,
                    const char **err_ptr) {
   try {
     ndb->ndb->save(save_path);
-  } catch (const std::exception &e) {
-    copyError(e, err_ptr);
-    return;
-  }
-}
-
-void set_license_key(const char *key, const char **err_ptr) {
-  try {
-    thirdai::licensing::activate(key);
-  } catch (const std::exception &e) {
-    copyError(e, err_ptr);
-    return;
-  }
-}
-
-void set_license_path(const char *path, const char **err_ptr) {
-  try {
-    thirdai::licensing::setLicensePath(path);
   } catch (const std::exception &e) {
     copyError(e, err_ptr);
     return;
