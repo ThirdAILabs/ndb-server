@@ -2,6 +2,33 @@
 
 A simple containerized service for ThirdAI NeuralDB.
 
+## Usage
+
+### Running Natively
+To run natively you can build the executable with `go build cmd/main.go`. The resulting executable supports the following cli args:
+```
+Usage of ./main:
+  -leader
+    	Run as leader
+  -max-checkpoints int
+    	Maximum number of checkpoints to keep in S3 (default 10)
+  -port int
+    	Port to run the server on (default 80)
+  -s3-bucket string
+    	S3 bucket name for checkpoints
+  -s3-region string
+    	S3 region for checkpoints (default "us-west-2")
+```
+### Running with Docker
+1. Build the docker image:
+```bash
+docker build -t ndb-server -f Dockerfile .
+```
+2. Run the image: 
+```bash
+docker run --rm ndb-server --leader --s3-bucket <s3 bucket>
+```
+
 ## Design 
 
 ### Endpoints
