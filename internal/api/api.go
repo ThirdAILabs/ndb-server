@@ -321,10 +321,10 @@ func (s *Server) Checkpoint(r *http.Request) (any, error) {
 		return nil, CodedErrorf(http.StatusForbidden, "only leader can create checkpoints")
 	}
 
-	return s.CreateCheckpoint()
+	return s.PushCheckpoint()
 }
 
-func (s *Server) CreateCheckpoint() (NDBCheckpointResponse, error) {
+func (s *Server) PushCheckpoint() (NDBCheckpointResponse, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -379,7 +379,7 @@ func (s *Server) PushCheckpoints(interval time.Duration) {
 	for {
 		select {
 		case <-ticker:
-			if _, err := s.CreateCheckpoint(); err != nil {
+			if _, err := s.PushCheckpoint(); err != nil {
 				consecutiveCheckpointFailures++
 				slog.Error("error creating checkpoint", "error", err)
 				if consecutiveCheckpointFailures >= 3 {
