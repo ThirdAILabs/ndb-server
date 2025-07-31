@@ -275,9 +275,9 @@ func (s *Server) Upvote(r *http.Request) (any, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	queries := make([]string, len(upvoteParams.TextIdPairs))
-	labels := make([]uint64, len(upvoteParams.TextIdPairs))
-	for i, pair := range upvoteParams.TextIdPairs {
+	queries := make([]string, len(upvoteParams.QueryIdPairs))
+	labels := make([]uint64, len(upvoteParams.QueryIdPairs))
+	for i, pair := range upvoteParams.QueryIdPairs {
 		queries[i] = pair.QueryText
 		labels[i] = pair.ReferenceId
 	}

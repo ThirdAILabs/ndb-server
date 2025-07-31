@@ -177,11 +177,13 @@ type NDBDeleteParams struct {
 	SourceIds []string `json:"source_ids"`
 }
 
+type QueryIdPair struct {
+	QueryText   string `json:"query_text"`
+	ReferenceId uint64 `json:"reference_id"`
+}
+
 type NDBUpvoteParams struct {
-	TextIdPairs []struct {
-		QueryText   string `json:"query_text"`
-		ReferenceId uint64 `json:"reference_id"`
-	} `json:"text_id_pairs"`
+	QueryIdPairs []QueryIdPair `json:"text_id_pairs"`
 }
 
 type NDBSource struct {

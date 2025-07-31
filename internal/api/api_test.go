@@ -109,6 +109,17 @@ func callDelete(backend http.Handler, id string) error {
 	return nil
 }
 
+func callUpvote(backend http.Handler, upvoteParams api.NDBUpvoteParams) error {
+	body, err := json.Marshal(upvoteParams)
+	if err != nil {
+		return fmt.Errorf("failed to marshal upvote params: %w", err)
+	}
+	if err := callBackendMethod(backend, http.MethodPost, "/api/v1/upvote", body, nil); err != nil {
+		return fmt.Errorf("failed to call upvote: %w", err)
+	}
+	return nil
+}
+
 func checkResults(t *testing.T, response api.NDBSearchResponse, expectedIds []int) {
 	t.Helper()
 
@@ -220,6 +231,27 @@ func TestLeaderOnly(t *testing.T) {
 		checkResults(t, res4, []int{4})
 	})
 
+	t.Run("Upvote", func(t *testing.T) {
+		res1, err := callSearch(router, "a b c d e h i j", 10, nil)
+		require.NoError(t, err)
+		checkResults(t, res1, []int{4, 3, 2, 1, 0})
+
+		req := api.NDBUpvoteParams{
+			QueryIdPairs: []api.QueryIdPair{
+				{QueryText: "h i j", ReferenceId: 2},
+				{QueryText: "1 2 3", ReferenceId: 8},
+				{QueryText: "4 5", ReferenceId: 0},
+				{QueryText: "6 7", ReferenceId: 5},
+			},
+		}
+
+		require.NoError(t, callUpvote(router, req))
+
+		res2, err := callSearch(router, "a b c d e h i j", 10, nil)
+		require.NoError(t, err)
+		checkResults(t, res2, []int{2, 4, 3, 1, 0})
+	})
+
 	t.Run("Delete", func(t *testing.T) {
 		res1, err := callSearch(router, "z e", 10, nil)
 		require.NoError(t, err)
@@ -231,6 +263,7 @@ func TestLeaderOnly(t *testing.T) {
 		require.NoError(t, err)
 		checkResults(t, res2, []int{8})
 	})
+
 }
 
 func TestLeaderAndFollower(t *testing.T) {
