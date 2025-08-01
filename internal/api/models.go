@@ -10,16 +10,15 @@ const (
 	AnyOfType       = "AnyOf"
 	EqualToType     = "EqualTo"
 	SubstringType   = "Substring"
-	InRangeType     = "InRange"
 	GreaterThanType = "GreaterThan"
 	LessThanType    = "LessThan"
 )
 
 const (
-	MetadataTypeString = "string"
-	MetadataTypeInt    = "integer"
+	MetadataTypeString = "str"
+	MetadataTypeInt    = "int"
 	MetadataTypeFloat  = "float"
-	MetadataTypeBool   = "boolean"
+	MetadataTypeBool   = "bool"
 )
 
 type Constraint struct {
@@ -183,7 +182,7 @@ type QueryIdPair struct {
 }
 
 type NDBUpvoteParams struct {
-	QueryIdPairs []QueryIdPair `json:"text_id_pairs"`
+	QueryIdPairs []QueryIdPair `json:"query_id_pairs"`
 }
 
 type NDBSource struct {
