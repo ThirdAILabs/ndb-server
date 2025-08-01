@@ -19,6 +19,10 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	maxInsertFileSize = 100 * 1024 * 1024 // 100 MB
+)
+
 type Server struct {
 	lock sync.RWMutex
 
@@ -162,9 +166,13 @@ func getMetadataAndContent(r *http.Request) ([]byte, NDBDocumentMetadata, error)
 		defer part.Close()
 
 		if part.FormName() == "file" {
-			data, err := io.ReadAll(part)
+			data, err := io.ReadAll(io.LimitReader(part, maxInsertFileSize+1)) // +1 to ensure we catch overflows
 			if err != nil {
 				return nil, NDBDocumentMetadata{}, CodedErrorf(http.StatusBadRequest, "error reading file: %w", err)
+			}
+
+			if len(data) > maxInsertFileSize {
+				return nil, NDBDocumentMetadata{}, CodedErrorf(http.StatusUnprocessableEntity, "file size exceeds maximum limit of %d bytes", maxInsertFileSize)
 			}
 
 			contents = data
