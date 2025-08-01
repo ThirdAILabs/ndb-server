@@ -14,6 +14,7 @@ FROM golang:1.24.4
 
 WORKDIR /app
 COPY --from=builder /app/ndb-server .
+COPY --from=builder /app/third_party_licenses .
 EXPOSE 80
 
 ENTRYPOINT ["/app/ndb-server"]
