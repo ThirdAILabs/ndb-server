@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -188,7 +189,7 @@ func getMetadataAndContent(r *http.Request) ([]byte, NDBDocumentMetadata, error)
 			}
 
 			if len(data) > maxInsertFileSize {
-				return nil, NDBDocumentMetadata{}, CodedErrorf(http.StatusUnprocessableEntity, "file size exceeds maximum limit of %d bytes", maxInsertFileSize)
+				return nil, NDBDocumentMetadata{}, CodedErrorf(http.StatusUnprocessableEntity, "file size exceeds maximum limit of %d bytes, please chunk file", maxInsertFileSize)
 			}
 
 			contents = data
@@ -221,6 +222,10 @@ func (s *Server) Insert(r *http.Request) (any, error) {
 	if err != nil {
 		logger.Error("error getting metadata and content", "error", err)
 		return nil, err
+	}
+
+	if !strings.HasSuffix(metadata.Filename, ".csv") {
+		return nil, CodedErrorf(http.StatusBadRequest, "only CSV files are supported for insertion")
 	}
 
 	logger.Info("inserting document", "filename", metadata.Filename, "source_id", metadata.SourceId, "text_columns", metadata.TextColumns, "metadata_dtypes", metadata.MetadataTypes, "doc_metadata", metadata.DocMetadata)
