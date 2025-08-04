@@ -225,7 +225,7 @@ func (s *Server) Insert(r *http.Request) (any, error) {
 	}
 
 	if !strings.HasSuffix(metadata.Filename, ".csv") {
-		return nil, CodedErrorf(http.StatusBadRequest, "only CSV files are supported for insertion")
+		return nil, CodedErrorf(http.StatusUnprocessableEntity, "only CSV files are supported for insertion")
 	}
 
 	logger.Info("inserting document", "filename", metadata.Filename, "source_id", metadata.SourceId, "text_columns", metadata.TextColumns, "metadata_dtypes", metadata.MetadataTypes, "doc_metadata", metadata.DocMetadata)
