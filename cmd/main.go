@@ -27,16 +27,13 @@ func parseFlags() config {
 	flag.BoolVar(&cfg.leader, "leader", false, "Run as leader")
 	flag.IntVar(&cfg.port, "port", 80, "Port to run the server on")
 	flag.StringVar(&cfg.s3Bucket, "s3-bucket", "", "S3 bucket name for checkpoints")
-	flag.StringVar(&cfg.s3Region, "s3-region", "us-west-2", "S3 region for checkpoints")
+	flag.StringVar(&cfg.s3Region, "s3-region", "", "S3 region for checkpoints")
 	flag.IntVar(&cfg.maxCheckpoints, "max-checkpoints", 10, "Maximum number of checkpoints to keep in S3")
 	flag.StringVar(&cfg.localCheckpointDir, "checkpoint-dir", "./checkpoints", "Local directory to store checkpoints")
 
 	flag.Parse()
 
-	if cfg.s3Bucket == "" {
-		log.Fatalf("s3-bucket must be specified")
-	}
-	if cfg.s3Region == "" {
+	if cfg.s3Bucket != "" && cfg.s3Region == "" {
 		log.Fatalf("s3-region must be specified")
 	}
 
@@ -48,11 +45,17 @@ func main() {
 
 	cfg := parseFlags()
 
-	slog.Info("startin server", "config", cfg)
+	slog.Info("starting server", "config", cfg)
 
-	checkpointer, err := api.NewS3Checkpointer(cfg.s3Bucket, cfg.s3Region, cfg.maxCheckpoints)
-	if err != nil {
-		log.Fatalf("Failed to create S3 checkpointer: %v", err)
+	var checkpointer api.Checkpointer
+	if cfg.s3Bucket != "" {
+		var err error
+		checkpointer, err = api.NewS3Checkpointer(cfg.s3Bucket, cfg.s3Region, cfg.maxCheckpoints)
+		if err != nil {
+			log.Fatalf("Failed to create S3 checkpointer: %v", err)
+		}
+	} else {
+		slog.Info("no s3 bucket specified, no checkpoints will be saved")
 	}
 
 	server, err := api.NewServer(checkpointer, cfg.leader, cfg.localCheckpointDir)

@@ -39,26 +39,42 @@ func localVersionPath(dir string, version Version) string {
 	return filepath.Join(dir, versionName(version))
 }
 
-func NewServer(checkpointer Checkpointer, leader bool, localCheckpointDir string) (*Server, error) {
-	checkpoints, err := checkpointer.List()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list checkpoints: %w", err)
+func downloadLatestVersionFromCheckpointer(checkpointer Checkpointer, localCheckpointDir string) (Version, error) {
+	if checkpointer == nil {
+		slog.Info("no checkpointer initialized, skipping check for latest version")
+		return 0, nil
 	}
 
-	var currVersion Version
+	checkpoints, err := checkpointer.List()
+	if err != nil {
+		return -1, fmt.Errorf("failed to list checkpoints: %w", err)
+	}
+
 	if len(checkpoints) > 0 {
-		currVersion = latestVersion(checkpoints)
+		currVersion := latestVersion(checkpoints)
 		localPath := localVersionPath(localCheckpointDir, currVersion)
 		slog.Info("found existing checkpoints, downloading latest", "version", currVersion)
 
 		if err := checkpointer.Download(currVersion, localPath); err != nil {
 			slog.Error("failed to download latest checkpoint", "version", currVersion, "error", err)
-			return nil, fmt.Errorf("failed to download latest checkpoint (version=%v): %w", currVersion, err)
+			return -1, fmt.Errorf("failed to download latest checkpoint (version=%v): %w", currVersion, err)
 		}
 		slog.Info("successfully downloaded latest checkpoint", "version", currVersion)
+		return currVersion, nil
 	} else {
 		slog.Info("no checkpoints found, initializing with version 0")
-		currVersion = Version(0)
+		return 0, nil
+	}
+}
+
+func NewServer(checkpointer Checkpointer, leader bool, localCheckpointDir string) (*Server, error) {
+	if !leader && checkpointer == nil {
+		return nil, fmt.Errorf("checkpointer must be initialized for non-leader nodes")
+	}
+
+	currVersion, err := downloadLatestVersionFromCheckpointer(checkpointer, localCheckpointDir)
+	if err != nil {
+		return nil, err
 	}
 
 	neuralDB, err := ndb.New(localVersionPath(localCheckpointDir, currVersion))
@@ -345,6 +361,11 @@ func (s *Server) PushCheckpoint() (NDBCheckpointResponse, error) {
 		return NDBCheckpointResponse{Version: int(s.currVersion), NewCheckpoint: false}, nil
 	}
 
+	if s.checkpointer == nil {
+		slog.Error("no checkpointer initialized, cannot push checkpoint")
+		return NDBCheckpointResponse{}, CodedErrorf(http.StatusInternalServerError, "checkpointer must be initialized to push checkpoints")
+	}
+
 	slog.Info("creating new checkpoint", "version", s.currVersion+1)
 
 	newVersion := s.currVersion + 1
@@ -401,6 +422,11 @@ func (s *Server) PushCheckpoints(interval time.Duration) {
 }
 
 func (s *Server) PullLatestCheckpoint() error {
+	if s.checkpointer == nil {
+		slog.Error("no checkpointer initialized, cannot pull latest checkpoint")
+		return CodedErrorf(http.StatusInternalServerError, "checkpointer must be initialized to pull checkpoints")
+	}
+
 	checkpoints, err := s.checkpointer.List()
 	if err != nil {
 		slog.Error("error listing checkpoints", "error", err)
