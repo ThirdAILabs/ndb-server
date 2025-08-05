@@ -33,14 +33,16 @@ docker run --rm ndb-server --leader --s3-bucket <s3 bucket>
 
 ### Endpoints
 
-The container will expose the following endpoints
+The container will expose the following endpoints:
 
-- `/search` - runs query
-- `/delete` - deletes documents
-- `/insert` - inserts documents
-- `/upvote` - apples finetuning for future queries
-- `/sources` - returns list of documents in NDB
-- `/checkpoint` - pushes latest checkpoint (see details on checkpoints below)
+- `/api/v1/search` - runs query
+- `/api/v1/delete` - deletes documents
+- `/api/v1/insert` - inserts documents
+- `/api/v1/upvote` - apples finetuning for future queries
+- `/api/v1/sources` - returns list of documents in NDB
+- `/api/v1/checkpoint` - pushes latest checkpoint (see details on checkpoints below)
+
+See `docs/api_docs.md` for more detailed documentation on the endpoints.
 
 ### Model Checkpoints
 
