@@ -2,17 +2,18 @@ package api
 
 import (
 	"fmt"
+	"log/slog"
 	"ndb-server/internal/ndb"
 )
 
 type Version int
 
 type Checkpointer interface {
-	List() ([]Version, error)
+	List(logger *slog.Logger) ([]Version, error)
 
-	Download(version Version, localPath string) error
+	Download(logger *slog.Logger, version Version, localPath string) error
 
-	Upload(version Version, localPath string, sources []ndb.Source) error
+	Upload(logger *slog.Logger, version Version, localPath string, sources []ndb.Source) error
 }
 
 func versionName(version Version) string {

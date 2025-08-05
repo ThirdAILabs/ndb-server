@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"mime/multipart"
 	"ndb-server/internal/api"
 	"net/http"
@@ -118,6 +119,22 @@ func callUpvote(backend http.Handler, upvoteParams api.NDBUpvoteParams) error {
 		return fmt.Errorf("failed to call upvote: %w", err)
 	}
 	return nil
+}
+
+func callSources(backend http.Handler) ([]api.NDBSource, error) {
+	var response []api.NDBSource
+	if err := callBackendMethod(backend, http.MethodGet, "/api/v1/sources", nil, &response); err != nil {
+		return nil, fmt.Errorf("failed to call sources: %w", err)
+	}
+	return response, nil
+}
+
+func callCheckpoint(backend http.Handler) (api.NDBCheckpointResponse, error) {
+	var response api.NDBCheckpointResponse
+	if err := callBackendMethod(backend, http.MethodPost, "/api/v1/checkpoint", nil, &response); err != nil {
+		return api.NDBCheckpointResponse{}, fmt.Errorf("failed to call checkpoint: %w", err)
+	}
+	return response, nil
 }
 
 func checkResults(t *testing.T, response api.NDBSearchResponse, expectedIds []int) {
@@ -250,6 +267,12 @@ func TestLeaderOnly(t *testing.T) {
 		checkResults(t, res2, []int{2, 4, 3, 1, 0})
 	})
 
+	t.Run("Sources", func(t *testing.T) {
+		sources, err := callSources(router)
+		require.NoError(t, err)
+		require.Len(t, sources, 2)
+	})
+
 	t.Run("Delete", func(t *testing.T) {
 		res1, err := callSearch(router, "z e", 10, nil)
 		require.NoError(t, err)
@@ -262,6 +285,20 @@ func TestLeaderOnly(t *testing.T) {
 		checkResults(t, res2, []int{8})
 	})
 
+	t.Run("Checkpoint", func(t *testing.T) {
+		ckpts1, err := checkpointer.List(slog.Default())
+		require.NoError(t, err)
+		assert.Len(t, ckpts1, 0)
+
+		ckpt, err := callCheckpoint(router)
+		require.NoError(t, err)
+		assert.Equal(t, ckpt.Version, 1)
+		assert.Equal(t, ckpt.NewCheckpoint, true)
+
+		ckpts2, err := checkpointer.List(slog.Default())
+		require.NoError(t, err)
+		assert.Equal(t, ckpts2, []api.Version{1})
+	})
 }
 
 func TestLeaderAndFollower(t *testing.T) {
@@ -281,7 +318,7 @@ func TestLeaderAndFollower(t *testing.T) {
 		MetadataTypes: map[string]string{"k1": api.MetadataTypeFloat, "k2": api.MetadataTypeBool, "k3": api.MetadataTypeInt, "k4": api.MetadataTypeString},
 	}))
 
-	ckpt, err := leader.PushCheckpoint()
+	ckpt, err := leader.PushCheckpoint(slog.Default())
 	require.NoError(t, err)
 	assert.Equal(t, ckpt.Version, 1)
 	assert.Equal(t, ckpt.NewCheckpoint, true)
@@ -317,12 +354,12 @@ func TestLeaderAndFollower(t *testing.T) {
 			MetadataTypes: map[string]string{"k1": api.MetadataTypeString, "k2": api.MetadataTypeInt, "k3": api.MetadataTypeString},
 		}))
 
-		ckpt, err := leader.PushCheckpoint()
+		ckpt, err := leader.PushCheckpoint(slog.Default())
 		require.NoError(t, err)
 		assert.Equal(t, ckpt.Version, 2)
 		assert.Equal(t, ckpt.NewCheckpoint, true)
 
-		require.NoError(t, follower.PullLatestCheckpoint())
+		require.NoError(t, follower.PullLatestCheckpoint(slog.Default()))
 	})
 
 	t.Run("Search Checkpoint 2", func(t *testing.T) {

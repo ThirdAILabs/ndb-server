@@ -3,6 +3,7 @@ package api_test
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"ndb-server/internal/api"
 	"os"
 	"path/filepath"
@@ -99,19 +100,19 @@ func TestS3Checkpointer(t *testing.T) {
 		writeFile(t, filepath.Join(localDir, "1/file.txt"), "checkpoint 1 data")
 		writeFile(t, filepath.Join(localDir, "2/file.txt"), "checkpoint 2 data")
 
-		assert.NoError(t, checkpointer.Upload(api.Version(0), filepath.Join(localDir, "0"), nil))
-		assert.NoError(t, checkpointer.Upload(api.Version(1), filepath.Join(localDir, "1"), nil))
-		assert.NoError(t, checkpointer.Upload(api.Version(2), filepath.Join(localDir, "2"), nil))
+		assert.NoError(t, checkpointer.Upload(slog.Default(), api.Version(0), filepath.Join(localDir, "0"), nil))
+		assert.NoError(t, checkpointer.Upload(slog.Default(), api.Version(1), filepath.Join(localDir, "1"), nil))
+		assert.NoError(t, checkpointer.Upload(slog.Default(), api.Version(2), filepath.Join(localDir, "2"), nil))
 
-		assert.NoError(t, checkpointer.Download(api.Version(0), filepath.Join(localDir, "0_download")))
-		assert.NoError(t, checkpointer.Download(api.Version(1), filepath.Join(localDir, "1_download")))
-		assert.NoError(t, checkpointer.Download(api.Version(2), filepath.Join(localDir, "2_download")))
+		assert.NoError(t, checkpointer.Download(slog.Default(), api.Version(0), filepath.Join(localDir, "0_download")))
+		assert.NoError(t, checkpointer.Download(slog.Default(), api.Version(1), filepath.Join(localDir, "1_download")))
+		assert.NoError(t, checkpointer.Download(slog.Default(), api.Version(2), filepath.Join(localDir, "2_download")))
 
 		assertSameFileContent(t, filepath.Join(localDir, "0_download", "file.txt"), filepath.Join(localDir, "0", "file.txt"))
 		assertSameFileContent(t, filepath.Join(localDir, "1_download", "file.txt"), filepath.Join(localDir, "1", "file.txt"))
 		assertSameFileContent(t, filepath.Join(localDir, "2_download", "file.txt"), filepath.Join(localDir, "2", "file.txt"))
 
-		ckpts, err := checkpointer.List()
+		ckpts, err := checkpointer.List(slog.Default())
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []api.Version{0, 1, 2}, ckpts)
 	})
@@ -119,11 +120,11 @@ func TestS3Checkpointer(t *testing.T) {
 	t.Run("Max Checkpoints", func(t *testing.T) {
 		writeFile(t, filepath.Join(localDir, "3/file.txt"), "checkpoint 3 data")
 
-		assert.NoError(t, checkpointer.Upload(api.Version(3), filepath.Join(localDir, "3"), nil))
-		assert.NoError(t, checkpointer.Download(api.Version(3), filepath.Join(localDir, "3_download")))
+		assert.NoError(t, checkpointer.Upload(slog.Default(), api.Version(3), filepath.Join(localDir, "3"), nil))
+		assert.NoError(t, checkpointer.Download(slog.Default(), api.Version(3), filepath.Join(localDir, "3_download")))
 		assertSameFileContent(t, filepath.Join(localDir, "3_download", "file.txt"), filepath.Join(localDir, "3", "file.txt"))
 
-		ckpts, err := checkpointer.List()
+		ckpts, err := checkpointer.List(slog.Default())
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []api.Version{1, 2, 3}, ckpts)
 	})
@@ -141,12 +142,12 @@ func TestS3Checkpointer(t *testing.T) {
 		}) // Incomplete checkpoint will not be removed until next upload
 		require.NoError(t, head1Err)
 
-		ckpts1, err := checkpointer.List()
+		ckpts1, err := checkpointer.List(slog.Default())
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []api.Version{1, 3}, ckpts1)
 
 		writeFile(t, filepath.Join(localDir, "4/file.txt"), "checkpoint 4 data")
-		assert.NoError(t, checkpointer.Upload(api.Version(4), filepath.Join(localDir, "4"), nil))
+		assert.NoError(t, checkpointer.Upload(slog.Default(), api.Version(4), filepath.Join(localDir, "4"), nil))
 
 		_, head2Err := s3client.HeadObject(ctx, &s3.HeadObjectInput{
 			Bucket: aws.String(bucketName),
@@ -154,7 +155,7 @@ func TestS3Checkpointer(t *testing.T) {
 		}) // After upload the incomplete checkpoint should be removed
 		require.Error(t, head2Err)
 
-		ckpts2, err := checkpointer.List()
+		ckpts2, err := checkpointer.List(slog.Default())
 		require.NoError(t, err)
 		assert.ElementsMatch(t, []api.Version{1, 3, 4}, ckpts2)
 	})

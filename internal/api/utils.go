@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 type codedError struct {
@@ -43,13 +45,13 @@ func RestHandler(handler func(r *http.Request) (any, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		res, err := handler(r)
 		if err != nil {
+			slog.Error("error handling request", "request_id", r.Context().Value(middleware.RequestIDKey), "error", err)
 			var cerr *codedError
 			if errors.As(err, &cerr) {
 				http.Error(w, err.Error(), cerr.code)
 			} else {
 				slog.Error("received non coded error from endpoint", "error", err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
-
 			}
 			return
 		}

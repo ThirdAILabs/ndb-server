@@ -92,14 +92,15 @@ func (c *S3Checkpointer) listObjects(ctx context.Context, prefix string) ([]stri
 	return keys, nil
 }
 
-func (c *S3Checkpointer) List() ([]Version, error) {
+func (c *S3Checkpointer) List(logger *slog.Logger) ([]Version, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	slog.Info("listing checkpoints", "bucket", c.bucket)
+	logger.Info("s3_checkpointer: listing checkpoints", "bucket", c.bucket)
 
 	objects, err := c.listObjects(ctx, checkpointsPrefix)
 	if err != nil {
+		logger.Error("s3_checkpointer: failed to list objects", "bucket", c.bucket, "error", err)
 		return nil, fmt.Errorf("failed to list objects in bucket %s: %w", c.bucket, err)
 	}
 
@@ -116,7 +117,7 @@ func (c *S3Checkpointer) List() ([]Version, error) {
 		}
 	}
 
-	slog.Info("found checkpoints", "bucket", c.bucket, "versions", versions)
+	logger.Info("s3 checkpointer: found checkpoints", "bucket", c.bucket, "versions", versions)
 
 	return versions, nil
 }
@@ -138,16 +139,15 @@ func downloadObject(ctx context.Context, downloader *manager.Downloader, bucket,
 	if err != nil {
 		return fmt.Errorf("failed to download object %s from s3://%s/%s: %w", filename, bucket, key, err)
 	}
-	slog.Info("object downloaded successfully", "bucket", bucket, "key", key)
 
 	return nil
 }
 
-func (c *S3Checkpointer) Download(version Version, dest string) error {
+func (c *S3Checkpointer) Download(logger *slog.Logger, version Version, dest string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	slog.Info("downloading checkpoint", "version", version, "dest", dest)
+	logger.Info("s3_checkpointer: downloading checkpoint", "version", version, "dest", dest)
 
 	downloader := manager.NewDownloader(c.client)
 
@@ -155,20 +155,24 @@ func (c *S3Checkpointer) Download(version Version, dest string) error {
 
 	objs, err := c.listObjects(ctx, src)
 	if err != nil {
-		slog.Info("failed to list objects for checkpoint", "version", version, "src", src, "error", err)
+		logger.Info("s3_checkpointer: failed to list objects for checkpoint", "version", version, "src", src, "error", err)
 		return fmt.Errorf("failed to list objects for version %d: %w", version, err)
 	}
 
 	for _, obj := range objs {
 		localFilepath := filepath.Join(dest, strings.TrimPrefix(obj, src))
 
+		logger.Info("s3_checkpointer: downloading object", "version", version, "obj", obj, "dest", localFilepath)
+
 		if err := downloadObject(ctx, downloader, c.bucket, obj, localFilepath); err != nil {
-			slog.Info("failed to list object for checkpoint", "version", version, "obj", obj, "error", err)
+			logger.Info("s3_checkpointer: failed to download object for checkpoint", "version", version, "obj", obj, "error", err)
 			return fmt.Errorf("failed to download object %s: %w", obj, err)
 		}
+
+		logger.Info("s3_checkpointer: object downloaded", "version", version, "obj", obj, "dest", localFilepath)
 	}
 
-	slog.Info("checkpoint download successful", "version", version, "src", src, "dest", dest)
+	slog.Info("s3_checkpointer: checkpoint download successful", "version", version, "src", src, "dest", dest)
 
 	return nil
 }
@@ -181,11 +185,11 @@ type CheckpointMetadata struct {
 
 const checkpointMetadataFilename = "checkpoint_metadata.json"
 
-func (c *S3Checkpointer) Upload(version Version, src string, sources []ndb.Source) error {
+func (c *S3Checkpointer) Upload(logger *slog.Logger, version Version, src string, sources []ndb.Source) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	slog.Info("uploading checkpoint", "version", version, "src", src)
+	logger.Info("s3_checkpointer: uploading checkpoint", "version", version, "src", src)
 
 	dest := filepath.Join(checkpointsPrefix, versionName(version))
 
@@ -220,7 +224,7 @@ func (c *S3Checkpointer) Upload(version Version, src string, sources []ndb.Sourc
 		return nil
 	})
 	if err != nil {
-		slog.Error("failed to upload checkpoint files", "src", src, "dest", dest, "error", err)
+		logger.Error("s3_checkpointer: failed to upload checkpoint files", "src", src, "dest", dest, "error", err)
 		return fmt.Errorf("failed to upload files from %s: %w", src, err)
 	}
 
@@ -240,21 +244,21 @@ func (c *S3Checkpointer) Upload(version Version, src string, sources []ndb.Sourc
 		Key:    aws.String(filepath.Join(dest, checkpointMetadataFilename)),
 		Body:   bytes.NewReader(metadataJson),
 	}); err != nil {
-		slog.Error("failed to upload checkpoint metadata", "error", err)
+		logger.Error("s3_checkpointer: failed to upload checkpoint metadata", "error", err)
 		return fmt.Errorf("failed to upload checkpoint metadata to s3://%s/%s: %w", c.bucket, filepath.Join(dest, checkpointMetadataFilename), err)
 	}
 
-	if err := c.deleteOldCheckpoints(ctx); err != nil {
-		slog.Error("failed to delete old checkpoints", "error", err)
+	if err := c.deleteOldCheckpoints(logger, ctx); err != nil {
+		logger.Error("s3_checkpointer: failed to delete old checkpoints", "error", err)
 		return fmt.Errorf("failed to delete old checkpoints: %w", err)
 	}
 
-	slog.Info("checkpoint upload successful", "version", version, "src", src, "dest", dest)
+	logger.Info("s3_checkpointer: checkpoint upload successful", "version", version, "src", src, "dest", dest)
 
 	return nil
 }
 
-func (c *S3Checkpointer) deleteOldCheckpoints(ctx context.Context) error {
+func (c *S3Checkpointer) deleteOldCheckpoints(logger *slog.Logger, ctx context.Context) error {
 	objs, err := c.listObjects(ctx, checkpointsPrefix)
 	if err != nil {
 		return fmt.Errorf("failed to list objects in bucket %s: %w", c.bucket, err)
@@ -292,22 +296,22 @@ func (c *S3Checkpointer) deleteOldCheckpoints(ctx context.Context) error {
 	checkpointsToDelete := make([]Version, 0)
 	for ckpt, complete := range possibleCheckpoints {
 		if !complete {
-			slog.Warn("found incomplete checkpoint", "version", ckpt)
+			logger.Warn("s3_checkpointer: found incomplete checkpoint", "version", ckpt)
 			checkpointsToDelete = append(checkpointsToDelete, ckpt)
 		}
 	}
 
 	if len(orderedCompleteCheckpoints) > c.maxCheckpoints {
 		oldCheckpoints := orderedCompleteCheckpoints[:len(orderedCompleteCheckpoints)-c.maxCheckpoints]
-		slog.Info("exceeded max checkpoints, deleting old checkpoints", "maxVersions", c.maxCheckpoints, "oldCheckpoints", oldCheckpoints)
+		logger.Info("s3_checkpointer: exceeded max checkpoints, deleting old checkpoints", "maxVersions", c.maxCheckpoints, "oldCheckpoints", oldCheckpoints)
 		checkpointsToDelete = append(checkpointsToDelete, oldCheckpoints...)
 	}
 
 	for _, version := range checkpointsToDelete {
-		slog.Info("deleting checkpoint", "version", version)
+		logger.Info("s3_checkpointer: deleting checkpoint", "version", version)
 		ckptObjs, err := c.listObjects(ctx, filepath.Join(checkpointsPrefix, versionName(version)))
 		if err != nil {
-			slog.Error("failed to list objects for checkpoint", "version", version, "error", err)
+			logger.Error("s3_checkpointer: failed to list objects for checkpoint", "version", version, "error", err)
 			return fmt.Errorf("failed to list objects for version %d: %w", version, err)
 		}
 
@@ -316,13 +320,12 @@ func (c *S3Checkpointer) deleteOldCheckpoints(ctx context.Context) error {
 				Bucket: aws.String(c.bucket),
 				Key:    aws.String(obj),
 			}); err != nil {
-				slog.Error("failed to delete object", "bucket", c.bucket, "key", obj, "error", err)
+				logger.Error("s3_checkpointer: failed to delete object", "bucket", c.bucket, "key", obj, "error", err)
 				return fmt.Errorf("failed to delete object %s from s3://%s/%s: %w", obj, c.bucket, obj, err)
 			}
 		}
 
-		slog.Info("checkpoint deletion successful", "version", version)
-
+		logger.Info("s3_checkpointer: checkpoint deletion successful", "version", version)
 	}
 
 	return nil

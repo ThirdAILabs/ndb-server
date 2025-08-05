@@ -46,7 +46,7 @@ func downloadLatestVersionFromCheckpointer(checkpointer Checkpointer, localCheck
 		return 0, nil
 	}
 
-	checkpoints, err := checkpointer.List()
+	checkpoints, err := checkpointer.List(slog.Default())
 	if err != nil {
 		return -1, fmt.Errorf("failed to list checkpoints: %w", err)
 	}
@@ -56,7 +56,7 @@ func downloadLatestVersionFromCheckpointer(checkpointer Checkpointer, localCheck
 		localPath := localVersionPath(localCheckpointDir, currVersion)
 		slog.Info("found existing checkpoints, downloading latest", "version", currVersion)
 
-		if err := checkpointer.Download(currVersion, localPath); err != nil {
+		if err := checkpointer.Download(slog.Default(), currVersion, localPath); err != nil {
 			slog.Error("failed to download latest checkpoint", "version", currVersion, "error", err)
 			return -1, fmt.Errorf("failed to download latest checkpoint (version=%v): %w", currVersion, err)
 		}
@@ -123,6 +123,8 @@ func (s *Server) Search(r *http.Request) (any, error) {
 		return nil, err
 	}
 
+	logger := slog.With("request_id", r.Context().Value(middleware.RequestIDKey), "action", "search")
+
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 
@@ -135,15 +137,15 @@ func (s *Server) Search(r *http.Request) (any, error) {
 		ndbConstaints[key] = constraint
 	}
 
-	slog.Info("searching ndb", "request_id", r.Context().Value(middleware.RequestIDKey), "query", formatQueryLog(searchParams.Query), "top_k", searchParams.TopK, "constraints", ndbConstaints.String())
+	logger.Info("search: received", "query", formatQueryLog(searchParams.Query), "top_k", searchParams.TopK, "constraints", ndbConstaints.String())
 
 	chunks, err := s.ndb.Query(searchParams.Query, searchParams.TopK, ndbConstaints)
 	if err != nil {
-		slog.Error("ndb query error", "error", err, "query", searchParams.Query)
+		logger.Error("search: error", "error", err, "query", searchParams.Query)
 		return nil, CodedErrorf(http.StatusInternalServerError, "ndb query error %w", err)
 	}
 
-	slog.Info("ndb query successful", "request_id", r.Context().Value(middleware.RequestIDKey), "n_chunks", len(chunks))
+	logger.Info("search: complete", "n_chunks", len(chunks))
 
 	references := make([]Reference, len(chunks))
 	for i, chunk := range chunks {
@@ -212,7 +214,7 @@ func getMetadataAndContent(r *http.Request) ([]byte, NDBDocumentMetadata, error)
 }
 
 func (s *Server) Insert(r *http.Request) (any, error) {
-	logger := slog.With("request_id", r.Context().Value(middleware.RequestIDKey))
+	logger := slog.With("request_id", r.Context().Value(middleware.RequestIDKey), "action", "insert")
 
 	if !s.leader {
 		return nil, CodedErrorf(http.StatusForbidden, "only leader can insert documents")
@@ -228,15 +230,15 @@ func (s *Server) Insert(r *http.Request) (any, error) {
 		return nil, CodedErrorf(http.StatusUnprocessableEntity, "only CSV files are supported for insertion")
 	}
 
-	logger.Info("inserting document", "filename", metadata.Filename, "source_id", metadata.SourceId, "text_columns", metadata.TextColumns, "metadata_dtypes", metadata.MetadataTypes)
+	logger.Info("insert: received", "filename", metadata.Filename, "source_id", metadata.SourceId, "text_columns", metadata.TextColumns, "metadata_dtypes", metadata.MetadataTypes)
 
 	chunks, chunkMetadata, err := ParseContent(content, metadata.TextColumns, metadata.MetadataTypes)
 	if err != nil {
-		logger.Error("error parsing document content", "error", err)
+		logger.Error("insert: error parsing document content", "error", err)
 		return nil, err
 	}
 
-	logger.Info("parsed document content", "n_chunks", len(chunks))
+	logger.Info("insert: parsed document", "n_chunks", len(chunks))
 
 	var docId string
 	if metadata.SourceId != nil {
@@ -249,19 +251,19 @@ func (s *Server) Insert(r *http.Request) (any, error) {
 	defer s.lock.Unlock()
 
 	if err := s.ndb.Insert(metadata.Filename, docId, chunks, chunkMetadata, nil); err != nil {
-		logger.Error("ndb insert error", "error", err, "source_id", docId)
+		logger.Error("insert: error", "error", err, "source_id", docId)
 		return nil, CodedErrorf(http.StatusInternalServerError, "ndb insert error %w", err)
 	}
 
 	s.dirty = true
 
-	logger.Info("successfully inserted document", "source_id", docId)
+	logger.Info("insert: complete", "source_id", docId)
 
 	return nil, nil
 }
 
 func (s *Server) Delete(r *http.Request) (any, error) {
-	logger := slog.With("request_id", r.Context().Value(middleware.RequestIDKey))
+	logger := slog.With("request_id", r.Context().Value(middleware.RequestIDKey), "action", "delete")
 
 	deleteParams, err := ParseRequest[NDBDeleteParams](r)
 	if err != nil {
@@ -272,21 +274,21 @@ func (s *Server) Delete(r *http.Request) (any, error) {
 		return nil, CodedErrorf(http.StatusForbidden, "only leader can delete documents")
 	}
 
-	logger.Info("deleting documents", "ids", deleteParams.SourceIds)
+	logger.Info("delete: received", "ids", deleteParams.SourceIds)
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	for _, id := range deleteParams.SourceIds {
 		if err := s.ndb.Delete(id, false); err != nil {
-			logger.Error("ndb delete error", "error", err, "id", id)
+			logger.Error("delete: error", "error", err, "id", id)
 			return nil, CodedErrorf(http.StatusInternalServerError, "ndb delete error %w", err)
 		}
 	}
 
 	s.dirty = true
 
-	logger.Info("successfully deleted documents", "ids", deleteParams.SourceIds)
+	logger.Info("delete: complete", "ids", deleteParams.SourceIds)
 
 	return nil, nil
 }
@@ -301,6 +303,10 @@ func (s *Server) Upvote(r *http.Request) (any, error) {
 		return nil, err
 	}
 
+	logger := slog.With("request_id", r.Context().Value(middleware.RequestIDKey), "action", "upvote")
+
+	logger.Info("upvote: received", "n_queries", len(upvoteParams.QueryIdPairs))
+
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -312,13 +318,13 @@ func (s *Server) Upvote(r *http.Request) (any, error) {
 	}
 
 	if err := s.ndb.Finetune(queries, labels); err != nil {
-		slog.Error("ndb upvote error", "request_id", r.Context().Value(middleware.RequestIDKey), "error", err)
+		logger.Error("upvote: error", "error", err)
 		return nil, CodedErrorf(http.StatusInternalServerError, "ndb upvote error %w", err)
 	}
 
 	s.dirty = true
 
-	slog.Info("successfully upvoted queries", "request_id", r.Context().Value(middleware.RequestIDKey))
+	logger.Info("upvote: complete")
 
 	return nil, nil
 }
@@ -329,7 +335,7 @@ func (s *Server) Sources(r *http.Request) (any, error) {
 
 	sources, err := s.ndb.Sources()
 	if err != nil {
-		slog.Error("ndb list sources error", "request_id", r.Context().Value(middleware.RequestIDKey), "error", err)
+		slog.Error("sources: error", "request_id", r.Context().Value(middleware.RequestIDKey), "action", "sources", "error", err)
 		return nil, CodedErrorf(http.StatusInternalServerError, "ndb list sources error %w", err)
 	}
 
@@ -350,10 +356,22 @@ func (s *Server) Checkpoint(r *http.Request) (any, error) {
 		return nil, CodedErrorf(http.StatusForbidden, "only leader can create checkpoints")
 	}
 
-	return s.PushCheckpoint()
+	logger := slog.With("request_id", r.Context().Value(middleware.RequestIDKey), "action", "checkpoint")
+
+	logger.Info("checkpoint: received")
+
+	res, err := s.PushCheckpoint(logger)
+	if err != nil {
+		logger.Error("checkpoint: error", "error", err)
+		return nil, err
+	}
+
+	logger.Info("checkpoint: complete", "version", res.Version, "new_checkpoint", res.NewCheckpoint)
+
+	return res, nil
 }
 
-func (s *Server) PushCheckpoint() (NDBCheckpointResponse, error) {
+func (s *Server) PushCheckpoint(logger *slog.Logger) (NDBCheckpointResponse, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -362,39 +380,39 @@ func (s *Server) PushCheckpoint() (NDBCheckpointResponse, error) {
 	}
 
 	if !s.dirty {
-		slog.Info("no changes to checkpoint, skipping")
+		logger.Info("checkpointer: no changes to checkpoint, skipping")
 		return NDBCheckpointResponse{Version: int(s.currVersion), NewCheckpoint: false}, nil
 	}
 
 	if s.checkpointer == nil {
-		slog.Error("no checkpointer initialized, cannot push checkpoint")
+		logger.Error("checkpointer: no checkpointer initialized, cannot push checkpoint")
 		return NDBCheckpointResponse{}, CodedErrorf(http.StatusInternalServerError, "checkpointer must be initialized to push checkpoints")
 	}
 
-	slog.Info("creating new checkpoint", "version", s.currVersion+1)
+	logger.Info("checkpointer: creating new checkpoint", "version", s.currVersion+1)
 
 	newVersion := s.currVersion + 1
 	localVersionPath := localVersionPath(s.localCheckpointDir, newVersion)
 
 	if err := s.ndb.Save(localVersionPath); err != nil {
-		slog.Error("failed to save ndb state", "version", newVersion, "error", err)
+		logger.Error("checkpointer: failed to save ndb state", "version", newVersion, "error", err)
 		return NDBCheckpointResponse{}, CodedError(http.StatusInternalServerError, fmt.Errorf("failed to save ndb state: %w", err))
 	}
 
 	sources, err := s.ndb.Sources()
 	if err != nil {
-		slog.Error("failed to get ndb sources", "version", newVersion, "error", err)
+		logger.Error("checkpointer: failed to get ndb sources", "version", newVersion, "error", err)
 		return NDBCheckpointResponse{}, fmt.Errorf("failed to get ndb sources: %w", err)
 	}
 
-	slog.Info("successfully saved ndb state", "version", newVersion, "path", localVersionPath)
+	logger.Info("checkpointer: successfully saved ndb state", "version", newVersion, "path", localVersionPath)
 
-	if err := s.checkpointer.Upload(newVersion, localVersionPath, sources); err != nil {
-		slog.Error("failed to upload checkpoint", "version", newVersion, "error", err)
+	if err := s.checkpointer.Upload(logger, newVersion, localVersionPath, sources); err != nil {
+		logger.Error("checkpointer: failed to upload checkpoint", "version", newVersion, "error", err)
 		return NDBCheckpointResponse{}, fmt.Errorf("failed to upload checkpoint (version=%v): %w", newVersion, err)
 	}
 
-	slog.Info("successfully uploaded checkpoint", "version", newVersion)
+	logger.Info("checkpointer: successfully uploaded checkpoint", "version", newVersion)
 
 	s.currVersion = newVersion
 	s.dirty = false
@@ -409,13 +427,15 @@ func (s *Server) PushCheckpoints(interval time.Duration) {
 
 	ticker := time.Tick(interval)
 
+	logger := slog.With("action", "push_checkpoints")
+
 	consecutiveCheckpointFailures := 0
 	for {
 		select {
 		case <-ticker:
-			if _, err := s.PushCheckpoint(); err != nil {
+			if _, err := s.PushCheckpoint(logger); err != nil {
 				consecutiveCheckpointFailures++
-				slog.Error("error creating checkpoint", "error", err)
+				logger.Error("checkpointer: error creating checkpoint", "error", err, "n_consecutive_failures", consecutiveCheckpointFailures)
 				if consecutiveCheckpointFailures >= 3 {
 					log.Fatalf("reached %d consecutive checkpoint failures, exiting", consecutiveCheckpointFailures)
 				}
@@ -426,40 +446,40 @@ func (s *Server) PushCheckpoints(interval time.Duration) {
 	}
 }
 
-func (s *Server) PullLatestCheckpoint() error {
+func (s *Server) PullLatestCheckpoint(logger *slog.Logger) error {
 	if s.checkpointer == nil {
-		slog.Error("no checkpointer initialized, cannot pull latest checkpoint")
+		logger.Error("checkpointer: no checkpointer initialized, cannot pull latest checkpoint")
 		return CodedErrorf(http.StatusInternalServerError, "checkpointer must be initialized to pull checkpoints")
 	}
 
-	checkpoints, err := s.checkpointer.List()
+	checkpoints, err := s.checkpointer.List(logger)
 	if err != nil {
-		slog.Error("error listing checkpoints", "error", err)
+		logger.Error("checkpointer: error listing checkpoints", "error", err)
 		return fmt.Errorf("failed to list checkpoints: %w", err)
 	}
 
 	latest := latestVersion(checkpoints)
 	if latest <= s.currVersion {
-		slog.Info("no new checkpoints found", "current_version", s.currVersion, "latest_version", latest)
+		logger.Info("checkpointer: no new checkpoints found", "current_version", s.currVersion, "latest_version", latest)
 		return nil
 	}
 
 	localPath := localVersionPath(s.localCheckpointDir, latest)
-	if err := s.checkpointer.Download(latest, localPath); err != nil {
-		slog.Error("failed to download checkpoint", "version", latest, "error", err)
+	if err := s.checkpointer.Download(logger, latest, localPath); err != nil {
+		logger.Error("checkpointer: failed to download checkpoint", "version", latest, "error", err)
 		return fmt.Errorf("failed to download checkpoint (version=%v): %w", latest, err)
 	}
 
-	slog.Info("successfully downloaded new checkpoint", "version", latest)
+	logger.Info("checkpointer: successfully downloaded new checkpoint", "version", latest)
 
 	newNdb, err := ndb.New(localPath)
 	if err != nil {
-		slog.Error("failed to load checkpoint into ndb", "version", latest, "error", err)
+		logger.Error("checkpointer: failed to load checkpoint into ndb", "version", latest, "error", err)
 		return fmt.Errorf("failed to load checkpoint into ndb (version=%v): %w", latest, err)
 	}
 
 	if err := os.RemoveAll(localVersionPath(s.localCheckpointDir, s.currVersion)); err != nil {
-		slog.Error("failed to remove old checkpoint files", "version", s.currVersion, "error", err)
+		logger.Error("checkpointer: failed to remove old checkpoint files", "version", s.currVersion, "error", err)
 	}
 
 	s.lock.Lock()
@@ -467,7 +487,7 @@ func (s *Server) PullLatestCheckpoint() error {
 	s.currVersion = latest
 	s.lock.Unlock()
 
-	slog.Info("successfully loaded new checkpoint into ndb", "version", latest)
+	logger.Info("checkpointer: successfully loaded new checkpoint into ndb", "version", latest)
 
 	return nil
 }
@@ -479,11 +499,13 @@ func (s *Server) PullCheckpoints(interval time.Duration) {
 
 	ticker := time.Tick(interval)
 
+	logger := slog.With("action", "pull_checkpoints")
+
 	for {
 		select {
 		case <-ticker:
-			if err := s.PullLatestCheckpoint(); err != nil {
-				slog.Error("error pulling latest checkpoint", "error", err)
+			if err := s.PullLatestCheckpoint(logger); err != nil {
+				logger.Error("checkpointer: error pulling latest checkpoint", "error", err)
 			}
 		}
 	}
