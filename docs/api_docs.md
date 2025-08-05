@@ -112,15 +112,15 @@ __Notes__
 curl -X POST http://localhost:8000/api/v1/insert \
 -H "Content-Type: multipart/form-data" \
 -F "file=@example.csv" \
--F "metadata={
-  \"filename\": \"example.csv\",
-  \"source_id\": \"12345\",
-  \"text_columns\": [\"content\"],
-  \"metadata_types\": {
-    \"author\": \"str\",
-    \"year\": \"int\"
+-F 'metadata={
+  "filename": "example.csv",
+  "source_id": "12345",
+  "text_columns": ["content"],
+  "metadata_types": {
+    "author": "str",
+    "year": "int"
   }
-}"
+}'
 ```
 
 

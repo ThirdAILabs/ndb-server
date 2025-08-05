@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const checkpointInterval = 60 * time.Minute
-
 type config struct {
 	leader             bool
 	port               int
@@ -19,10 +17,12 @@ type config struct {
 	s3Region           string
 	maxCheckpoints     int
 	localCheckpointDir string
+	checkpointInterval time.Duration
 }
 
 func parseFlags() config {
 	var cfg config
+	var checkpointIntervalStr string
 
 	flag.BoolVar(&cfg.leader, "leader", false, "Run as leader")
 	flag.IntVar(&cfg.port, "port", 80, "Port to run the server on")
@@ -30,12 +30,19 @@ func parseFlags() config {
 	flag.StringVar(&cfg.s3Region, "s3-region", "", "S3 region for checkpoints")
 	flag.IntVar(&cfg.maxCheckpoints, "max-checkpoints", 10, "Maximum number of checkpoints to keep in S3")
 	flag.StringVar(&cfg.localCheckpointDir, "checkpoint-dir", "./checkpoints", "Local directory to store checkpoints")
+	flag.StringVar(&checkpointIntervalStr, "checkpoint-interval", "1h", "Interval for checkpoints (e.g., 5m, 1h5m)")
 
 	flag.Parse()
 
 	if cfg.s3Bucket != "" && cfg.s3Region == "" {
 		log.Fatalf("s3-region must be specified")
 	}
+
+	checkpointInterval, err := time.ParseDuration(checkpointIntervalStr)
+	if err != nil {
+		log.Fatalf("Invalid checkpoint interval: %v", err)
+	}
+	cfg.checkpointInterval = checkpointInterval
 
 	return cfg
 }
@@ -64,9 +71,9 @@ func main() {
 	}
 
 	if cfg.leader {
-		go server.PushCheckpoints(checkpointInterval)
+		go server.PushCheckpoints(cfg.checkpointInterval)
 	} else {
-		go server.PullCheckpoints(checkpointInterval)
+		go server.PullCheckpoints(cfg.checkpointInterval)
 	}
 
 	router := server.Router()
