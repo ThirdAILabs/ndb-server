@@ -46,7 +46,7 @@ func buildMetadataParsers(colToIdx map[string]int, metadataTypes map[string]stri
 	return metdataParsers, nil
 }
 
-func ParseContent(data []byte, textCols []string, metadataTypes map[string]string, docMetadata map[string]any) ([]string, []map[string]any, error) {
+func ParseContent(data []byte, textCols []string, metadataTypes map[string]string) ([]string, []map[string]any, error) {
 	reader := csv.NewReader(bytes.NewReader(data))
 
 	rows, err := reader.ReadAll()
@@ -87,10 +87,7 @@ func ParseContent(data []byte, textCols []string, metadataTypes map[string]strin
 		}
 		chunks = append(chunks, strings.TrimSpace(chunk.String()))
 
-		meta := make(map[string]any, len(metdataParsers)+len(docMetadata))
-		for k, v := range docMetadata {
-			meta[k] = v
-		}
+		meta := make(map[string]any, len(metdataParsers))
 		for col, parser := range metdataParsers {
 			value := row[colToIdx[col]]
 			parsedValue, err := parser(value)

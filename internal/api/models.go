@@ -169,7 +169,6 @@ type NDBDocumentMetadata struct {
 	SourceId      *string           `json:"source_id"`
 	TextColumns   []string          `json:"text_columns"`
 	MetadataTypes map[string]string `json:"metadata_types"`
-	DocMetadata   map[string]any    `json:"metadata"`
 }
 
 type NDBDeleteParams struct {

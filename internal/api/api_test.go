@@ -167,7 +167,6 @@ func TestLeaderOnly(t *testing.T) {
 			SourceId:      &docId1,
 			TextColumns:   []string{"text"},
 			MetadataTypes: map[string]string{"k1": api.MetadataTypeFloat, "k2": api.MetadataTypeBool, "k3": api.MetadataTypeInt, "k4": api.MetadataTypeString},
-			DocMetadata:   map[string]any{"doc_num": "one"},
 		}))
 
 		require.NoError(t, callInsert(router, doc2, api.NDBDocumentMetadata{
@@ -175,7 +174,6 @@ func TestLeaderOnly(t *testing.T) {
 			SourceId:      nil,
 			TextColumns:   []string{"text"},
 			MetadataTypes: map[string]string{"k1": api.MetadataTypeString, "k2": api.MetadataTypeInt, "k3": api.MetadataTypeString},
-			DocMetadata:   map[string]any{"doc_num": "two"},
 		}))
 	})
 
@@ -281,7 +279,6 @@ func TestLeaderAndFollower(t *testing.T) {
 		SourceId:      nil,
 		TextColumns:   []string{"text"},
 		MetadataTypes: map[string]string{"k1": api.MetadataTypeFloat, "k2": api.MetadataTypeBool, "k3": api.MetadataTypeInt, "k4": api.MetadataTypeString},
-		DocMetadata:   map[string]any{"doc_num": "one"},
 	}))
 
 	ckpt, err := leader.PushCheckpoint()
@@ -318,7 +315,6 @@ func TestLeaderAndFollower(t *testing.T) {
 			SourceId:      nil,
 			TextColumns:   []string{"text"},
 			MetadataTypes: map[string]string{"k1": api.MetadataTypeString, "k2": api.MetadataTypeInt, "k3": api.MetadataTypeString},
-			DocMetadata:   map[string]any{"doc_num": "two"},
 		}))
 
 		ckpt, err := leader.PushCheckpoint()

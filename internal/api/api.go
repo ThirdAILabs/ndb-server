@@ -228,9 +228,9 @@ func (s *Server) Insert(r *http.Request) (any, error) {
 		return nil, CodedErrorf(http.StatusUnprocessableEntity, "only CSV files are supported for insertion")
 	}
 
-	logger.Info("inserting document", "filename", metadata.Filename, "source_id", metadata.SourceId, "text_columns", metadata.TextColumns, "metadata_dtypes", metadata.MetadataTypes, "doc_metadata", metadata.DocMetadata)
+	logger.Info("inserting document", "filename", metadata.Filename, "source_id", metadata.SourceId, "text_columns", metadata.TextColumns, "metadata_dtypes", metadata.MetadataTypes)
 
-	chunks, chunkMetadata, err := ParseContent(content, metadata.TextColumns, metadata.MetadataTypes, metadata.DocMetadata)
+	chunks, chunkMetadata, err := ParseContent(content, metadata.TextColumns, metadata.MetadataTypes)
 	if err != nil {
 		logger.Error("error parsing document content", "error", err)
 		return nil, err

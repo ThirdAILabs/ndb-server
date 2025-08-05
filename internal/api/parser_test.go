@@ -17,17 +17,16 @@ text2,456,0,extra2`)
 		"col2": api.MetadataTypeInt,
 		"col3": api.MetadataTypeBool,
 	}
-	docMetadata := map[string]any{"staticKey": "staticValue"}
 
-	chunks, metadata, err := api.ParseContent(data, textCols, metadataTypes, docMetadata)
+	chunks, metadata, err := api.ParseContent(data, textCols, metadataTypes)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	expectedChunks := []string{"text1 extra1", "text2 extra2"}
 	expectedMetadata := []map[string]any{
-		{"staticKey": "staticValue", "col2": 123, "col3": true},
-		{"staticKey": "staticValue", "col2": 456, "col3": false},
+		{"col2": 123, "col3": true},
+		{"col2": 456, "col3": false},
 	}
 
 	assert.Equal(t, chunks, expectedChunks)
@@ -40,9 +39,8 @@ func TestParseContent_MissingTextColumn(t *testing.T) {
 text1,123`)
 	textCols := []string{"missingCol"}
 	metadataTypes := map[string]string{}
-	docMetadata := map[string]any{}
 
-	_, _, err := api.ParseContent(data, textCols, metadataTypes, docMetadata)
+	_, _, err := api.ParseContent(data, textCols, metadataTypes)
 	if err == nil || !strings.Contains(err.Error(), "text column missingCol not found in CSV header") {
 		t.Errorf("expected error for missing text column, got %v", err)
 	}
@@ -53,9 +51,8 @@ func TestParseContent_InvalidMetadataValue(t *testing.T) {
 text1,invalidInt`)
 	textCols := []string{"col1"}
 	metadataTypes := map[string]string{"col2": api.MetadataTypeInt}
-	docMetadata := map[string]any{}
 
-	_, _, err := api.ParseContent(data, textCols, metadataTypes, docMetadata)
+	_, _, err := api.ParseContent(data, textCols, metadataTypes)
 	if err == nil || !strings.Contains(err.Error(), "error parsing metadata column col2 value invalidInt") {
 		t.Errorf("expected error for invalid metadata value, got %v", err)
 	}
@@ -65,9 +62,8 @@ func TestParseContent_EmptyCSV(t *testing.T) {
 	data := []byte("")
 	textCols := []string{"col1"}
 	metadataTypes := map[string]string{}
-	docMetadata := map[string]any{}
 
-	_, _, err := api.ParseContent(data, textCols, metadataTypes, docMetadata)
+	_, _, err := api.ParseContent(data, textCols, metadataTypes)
 	if err == nil || !strings.Contains(err.Error(), "CSV file is empty") {
 		t.Errorf("expected error for empty CSV, got %v", err)
 	}

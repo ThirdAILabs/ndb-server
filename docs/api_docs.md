@@ -94,10 +94,6 @@ curl -X POST http://localhost:8000/api/v1/search \
   "metadata_types": {
     "author": "str",
     "year": "int"
-  },
-  "metadata": {
-    "doc_title": "Author List",
-    "revision": 4
   }
 }
 ```
@@ -105,7 +101,6 @@ curl -X POST http://localhost:8000/api/v1/search \
 __Notes__
 - All columns intended to be used as metadata must be specified in `"metadata_types"`
 - The values in the metadata types map must be the same as supported in the dtype field for constraints (see above).
-- The `"metadata"` field contains metadata for the document that will be added to all the chunks it contains.
 
 ### Example Response:
 ```json
@@ -124,10 +119,6 @@ curl -X POST http://localhost:8000/api/v1/insert \
   \"metadata_types\": {
     \"author\": \"str\",
     \"year\": \"int\"
-  },
-  \"metadata\": {
-    \"doc_title\": \"Author List\",
-    \"revision\": 4
   }
 }"
 ```
