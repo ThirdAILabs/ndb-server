@@ -144,6 +144,7 @@ are met:
 
 ====================================================================================
 Eigen
+Code is available at: https://github.com/ThirdAILabs/EigenFork
 ------------------------------------------------------------------------------------
 
 Mozilla Public License Version 2.0
