@@ -41,7 +41,7 @@ text1,123`)
 	metadataTypes := map[string]string{}
 
 	_, _, err := api.ParseContent(data, textCols, metadataTypes)
-	if err == nil || !strings.Contains(err.Error(), "text column missingCol not found in CSV header") {
+	if err == nil || !strings.Contains(err.Error(), "column 'missingCol' specified for indexing is not present in the CSV header") {
 		t.Errorf("expected error for missing text column, got %v", err)
 	}
 }
