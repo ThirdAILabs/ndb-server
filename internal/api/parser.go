@@ -51,7 +51,7 @@ func ParseContent(data []byte, textCols []string, metadataTypes map[string]strin
 
 	rows, err := reader.ReadAll()
 	if err != nil {
-		return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "only CSV files are supported: unable to read CSV header: %w", err)
+		return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "only CSV files are supported: unable to read CSV file: %w", err)
 	}
 
 	if len(rows) < 1 {
