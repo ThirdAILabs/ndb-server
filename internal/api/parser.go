@@ -51,7 +51,7 @@ func ParseContent(data []byte, textCols []string, metadataTypes map[string]strin
 
 	rows, err := reader.ReadAll()
 	if err != nil {
-		return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "error reading CSV header: %w", err)
+		return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "only CSV files are supported: unable to read CSV header: %w", err)
 	}
 
 	if len(rows) < 1 {
@@ -67,7 +67,7 @@ func ParseContent(data []byte, textCols []string, metadataTypes map[string]strin
 
 	for _, col := range textCols {
 		if _, ok := colToIdx[col]; !ok {
-			return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "text column %s not found in CSV header", col)
+			return nil, nil, CodedErrorf(http.StatusUnprocessableEntity, "column '%s' specified for indexing is not present in the CSV header", col)
 		}
 	}
 
