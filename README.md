@@ -10,14 +10,18 @@ To run natively you can build the executable with `go build cmd/main.go`. The re
 Usage of ./main:
   -leader
     	Run as leader
-  -max-checkpoints int
+  -s3-bucket string
+    	S3 bucket name for checkpoints, optional if not using no checkpoints will be pushed
+  -s3-region string
+    	S3 region for checkpoints, required if s3-bucket is specified
+  -ckpt-interval string
+    	Interval for checkpoints (e.g., 5m, 1h5m) (default "1h")
+  -ckpt-dir string
+    	Local directory to store checkpoints (default "./checkpoints")
+  -max-ckpts int
     	Maximum number of checkpoints to keep in S3 (default 10)
   -port int
     	Port to run the server on (default 80)
-  -s3-bucket string
-    	S3 bucket name for checkpoints
-  -s3-region string
-    	S3 region for checkpoints (default "us-west-2")
 ```
 ### Running with Docker
 1. Build the docker image:

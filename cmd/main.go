@@ -26,11 +26,11 @@ func parseFlags() config {
 
 	flag.BoolVar(&cfg.leader, "leader", false, "Run as leader")
 	flag.IntVar(&cfg.port, "port", 80, "Port to run the server on")
-	flag.StringVar(&cfg.s3Bucket, "s3-bucket", "", "S3 bucket name for checkpoints")
-	flag.StringVar(&cfg.s3Region, "s3-region", "", "S3 region for checkpoints")
-	flag.IntVar(&cfg.maxCheckpoints, "max-checkpoints", 10, "Maximum number of checkpoints to keep in S3")
-	flag.StringVar(&cfg.localCheckpointDir, "checkpoint-dir", "./checkpoints", "Local directory to store checkpoints")
-	flag.StringVar(&checkpointIntervalStr, "checkpoint-interval", "1h", "Interval for checkpoints (e.g., 5m, 1h5m)")
+	flag.StringVar(&cfg.s3Bucket, "s3-bucket", "", "S3 bucket name for checkpoints, optional if not using no checkpoints will be pushed")
+	flag.StringVar(&cfg.s3Region, "s3-region", "", "S3 region for checkpoints, required if s3-bucket is specified")
+	flag.IntVar(&cfg.maxCheckpoints, "max-ckpts", 10, "Maximum number of checkpoints to keep in S3")
+	flag.StringVar(&cfg.localCheckpointDir, "ckpt-dir", "./checkpoints", "Local directory to store checkpoints")
+	flag.StringVar(&checkpointIntervalStr, "ckpt-interval", "1h", "Interval for checkpoints (e.g., 5m, 1h5m)")
 
 	flag.Parse()
 
