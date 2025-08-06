@@ -1,9 +1,10 @@
 #!/bin/bash
 
+: "${ACCOUNT_ID:?Environment variable ACCOUNT_ID not set}"
+
 # --- Configuration ---
 AWS_REGION="us-west-1"
-ACCOUNT_ID=""
-REPO_NAME="thirdai-platform"
+REPO_NAME="ndb-server"
 IMAGE_NAME="ndb-server"
 IMAGE_TAG="1.0.0" 
 
