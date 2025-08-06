@@ -52,7 +52,11 @@ func main() {
 
 	cfg := parseFlags()
 
-	slog.Info("starting server", "config", cfg)
+	slog.Info("config", "leader", cfg.leader, "port", cfg.port,
+		"s3Bucket", cfg.s3Bucket, "s3Region", cfg.s3Region,
+		"maxCheckpoints", cfg.maxCheckpoints, "localCheckpointDir", cfg.localCheckpointDir,
+		"checkpointInterval", cfg.checkpointInterval.String(),
+	)
 
 	var checkpointer api.Checkpointer
 	if cfg.s3Bucket != "" {
@@ -78,8 +82,9 @@ func main() {
 
 	router := server.Router()
 
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.port), router); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	slog.Info("starting server")
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.port), router); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("server error: %v", err)
 	}
 
 	slog.Info("server stopped")
