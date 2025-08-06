@@ -26,8 +26,9 @@ Usage of ./main:
 ### Running with Docker
 1. Build the docker image:
 ```bash
-docker build -t ndb-server -f Dockerfile .
+docker build -t ndb-server -f DockerfileAmd64 .
 ```
+Note: There are two dockerfiles available to use. The difference is that in DockerfileAmd64 a distroless debian image is used for the release stage, which reduces the image size from ~800Mb to ~50Mb. However it requires copying various libraries like libc, libgcc, etc from the build stage which uses the official go image. The paths of these libraries is specific to the architecture, and thus thus dockerfile only works for amd64 machines. The same image could be adapted to work on arm64, it would just require updating these paths.  
 2. Run the image: 
 ```bash
 docker run --rm ndb-server --leader --s3-bucket <s3 bucket>
