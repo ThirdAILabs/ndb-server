@@ -16,10 +16,19 @@ RUN go-licenses save ./cmd/ --save_path=third_party_licenses || :
 FROM gcr.io/distroless/base-debian11 AS build-release-stage
 
 WORKDIR /app
-COPY --from=builder /app/ndb-server .
-COPY --from=builder /app/LICENSE .
-COPY --from=builder /app/third_party_licenses third_party_licenses
-COPY --from=builder /app/internal/ndb/lib/THIRD_PARTY_NOTICES.txt .
+
+# Copy libs that are not included in distroless base
+COPY --from=build-stage /usr/lib/x86_64-linux-gnu/libstdc++.so* /lib/x86_64-linux-gnu/
+COPY --from=build-stage /usr/lib/x86_64-linux-gnu/libgomp.so* /lib/x86_64-linux-gnu/
+COPY --from=build-stage /usr/lib/x86_64-linux-gnu/libgcc_s.so* /lib/x86_64-linux-gnu/
+COPY --from=build-stage /usr/lib/x86_64-linux-gnu/libc.so* /lib/x86_64-linux-gnu/
+COPY --from=build-stage /usr/lib64/ld-linux-x86-64.so* /lib64/
+
+# Copy binary and licenses
+COPY --from=build-stage /app/ndb-server .
+COPY --from=build-stage /app/LICENSE .
+COPY --from=build-stage /app/third_party_licenses third_party_licenses
+COPY --from=build-stage /app/internal/ndb/lib/THIRD_PARTY_NOTICES.txt .
 EXPOSE 80
 
 ENTRYPOINT ["/app/ndb-server"]
