@@ -25,6 +25,12 @@ const (
 	maxInsertFileSize = 100 * 1024 * 1024 // 100 MB
 )
 
+type checkpointTaskInfo struct {
+	version  Version
+	complete bool
+	err      error
+}
+
 type Server struct {
 	lock sync.RWMutex
 
@@ -35,8 +41,9 @@ type Server struct {
 	checkpointer       Checkpointer
 	// currVersion is only updated with the lock held, however it is an atomic to allow
 	// for checking the version while a checkpoint is being pushed/pulled in the background
-	currVersion atomic.Int64
-	dirty       bool
+	currVersion    atomic.Int64
+	dirty          bool
+	checkpointTask atomic.Pointer[checkpointTaskInfo]
 }
 
 func (s *Server) getVersion() Version {
@@ -113,11 +120,15 @@ func (s *Server) Router() chi.Router {
 	r.Use(middleware.Recoverer)
 
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
 		r.Post("/search", RestHandler(s.Search))
 		r.Post("/insert", RestHandler(s.Insert))
 		r.Post("/delete", RestHandler(s.Delete))
 		r.Post("/upvote", RestHandler(s.Upvote))
 		r.Get("/sources", RestHandler(s.Sources))
+		r.Get("/version", RestHandler(s.Version))
 		r.Post("/checkpoint", RestHandler(s.Checkpoint))
 	})
 
@@ -365,6 +376,24 @@ func (s *Server) Sources(r *http.Request) (any, error) {
 	return response, nil
 }
 
+func (s *Server) Version(r *http.Request) (any, error) {
+	currVersion := s.getVersion()
+
+	res := NDBVersionResponse{CurrVersion: int(currVersion)}
+
+	if info := s.checkpointTask.Load(); info != nil {
+		res.LastCheckpoint = &LastCheckpoint{
+			Version:  int(info.version),
+			Complete: info.complete,
+		}
+		if info.err != nil {
+			res.LastCheckpoint.Error = info.err.Error()
+		}
+	}
+
+	return res, nil
+}
+
 func (s *Server) Checkpoint(r *http.Request) (any, error) {
 	if !s.leader {
 		return nil, CodedErrorf(http.StatusForbidden, "only leader can create checkpoints")
@@ -374,7 +403,7 @@ func (s *Server) Checkpoint(r *http.Request) (any, error) {
 
 	logger.Info("checkpoint: received")
 
-	res, err := s.PushCheckpoint(logger)
+	res, err := s.PushCheckpoint(logger, true)
 	if err != nil {
 		logger.Error("checkpoint: error", "error", err)
 		return nil, err
@@ -385,7 +414,7 @@ func (s *Server) Checkpoint(r *http.Request) (any, error) {
 	return res, nil
 }
 
-func (s *Server) PushCheckpoint(logger *slog.Logger) (NDBCheckpointResponse, error) {
+func (s *Server) PushCheckpoint(logger *slog.Logger, async bool) (NDBCheckpointResponse, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -408,45 +437,68 @@ func (s *Server) PushCheckpoint(logger *slog.Logger) (NDBCheckpointResponse, err
 	newVersion := currVersion + 1
 	logger.Info("checkpointer: creating new checkpoint", "version", newVersion)
 
-	newVersionPath := localVersionPath(s.localCheckpointDir, newVersion)
+	s.checkpointTask.Store(&checkpointTaskInfo{version: newVersion, complete: false, err: nil})
 
-	if err := s.ndb.Save(newVersionPath); err != nil {
-		logger.Error("checkpointer: failed to save ndb state", "version", newVersion, "error", err)
-		return NDBCheckpointResponse{}, CodedError(http.StatusInternalServerError, fmt.Errorf("failed to save ndb state: %w", err))
+	result := NDBCheckpointResponse{Version: int(newVersion), NewCheckpoint: true}
+
+	run := func() (NDBCheckpointResponse, error) {
+		newVersionPath := localVersionPath(s.localCheckpointDir, newVersion)
+
+		if err := s.ndb.Save(newVersionPath); err != nil {
+			logger.Error("checkpointer: failed to save ndb state", "old_version", currVersion, "new_version", newVersion, "error", err)
+			err := fmt.Errorf("failed to save ndb state: %w", err)
+			s.checkpointTask.Store(&checkpointTaskInfo{version: newVersion, complete: true, err: err})
+			return NDBCheckpointResponse{}, err
+		}
+
+		newNdb, err := ndb.New(newVersionPath)
+		if err != nil {
+			logger.Error("checkpointer: failed to load ndb from new checkpoint", "old_version", currVersion, "new_version", newVersion, "error", err)
+			err := fmt.Errorf("failed to load ndb from new checkpoint (version=%v): %w", newVersion, err)
+			s.checkpointTask.Store(&checkpointTaskInfo{version: newVersion, complete: true, err: err})
+			return NDBCheckpointResponse{}, err
+		}
+
+		sources, err := s.ndb.Sources()
+		if err != nil {
+			logger.Error("checkpointer: failed to get ndb sources", "old_version", currVersion, "new_version", newVersion, "error", err)
+			err := fmt.Errorf("failed to get ndb sources: %w", err)
+			s.checkpointTask.Store(&checkpointTaskInfo{version: newVersion, complete: true, err: err})
+			return NDBCheckpointResponse{}, err
+		}
+
+		logger.Info("checkpointer: successfully saved ndb state", "old_version", currVersion, "new_version", newVersion, "path", localVersionPath)
+
+		if err := s.checkpointer.Upload(logger, newVersion, newVersionPath, sources); err != nil {
+			logger.Error("checkpointer: failed to upload checkpoint", "old_version", currVersion, "new_version", newVersion, "error", err)
+			err := fmt.Errorf("failed to upload checkpoint (version=%v): %w", newVersion, err)
+			s.checkpointTask.Store(&checkpointTaskInfo{version: newVersion, complete: true, err: err})
+			return NDBCheckpointResponse{}, err
+		}
+
+		logger.Info("checkpointer: successfully uploaded checkpoint", "version", newVersion)
+
+		s.ndb = newNdb
+		if !s.setVersion(currVersion, newVersion) {
+			panic(fmt.Sprintf("failed to update version from %d to %d", currVersion, newVersion))
+		}
+		s.dirty = false
+
+		if err := os.RemoveAll(localVersionPath(s.localCheckpointDir, currVersion)); err != nil {
+			logger.Error("checkpointer: failed to remove old checkpoint files", "version", currVersion, "error", err)
+		}
+
+		s.checkpointTask.Store(&checkpointTaskInfo{version: newVersion, complete: true, err: nil})
+		return result, nil
 	}
 
-	newNdb, err := ndb.New(newVersionPath)
-	if err != nil {
-		logger.Error("checkpointer: failed to load ndb from new checkpoint", "version", newVersion, "error", err)
-		return NDBCheckpointResponse{}, fmt.Errorf("failed to load ndb from new checkpoint (version=%v): %w", newVersion, err)
+	if async {
+		go run()
+		return result, nil
+	} else {
+		return run()
 	}
 
-	sources, err := s.ndb.Sources()
-	if err != nil {
-		logger.Error("checkpointer: failed to get ndb sources", "version", newVersion, "error", err)
-		return NDBCheckpointResponse{}, fmt.Errorf("failed to get ndb sources: %w", err)
-	}
-
-	logger.Info("checkpointer: successfully saved ndb state", "version", newVersion, "path", localVersionPath)
-
-	if err := s.checkpointer.Upload(logger, newVersion, newVersionPath, sources); err != nil {
-		logger.Error("checkpointer: failed to upload checkpoint", "version", newVersion, "error", err)
-		return NDBCheckpointResponse{}, fmt.Errorf("failed to upload checkpoint (version=%v): %w", newVersion, err)
-	}
-
-	logger.Info("checkpointer: successfully uploaded checkpoint", "version", newVersion)
-
-	s.ndb = newNdb
-	if !s.setVersion(currVersion, newVersion) {
-		panic(fmt.Sprintf("failed to update version from %d to %d", currVersion, newVersion))
-	}
-	s.dirty = false
-
-	if err := os.RemoveAll(localVersionPath(s.localCheckpointDir, currVersion)); err != nil {
-		logger.Error("checkpointer: failed to remove old checkpoint files", "version", currVersion, "error", err)
-	}
-
-	return NDBCheckpointResponse{Version: int(newVersion), NewCheckpoint: true}, nil
 }
 
 func (s *Server) PushCheckpoints(interval time.Duration) {
@@ -462,7 +514,7 @@ func (s *Server) PushCheckpoints(interval time.Duration) {
 	for {
 		select {
 		case <-ticker:
-			if _, err := s.PushCheckpoint(logger); err != nil {
+			if _, err := s.PushCheckpoint(logger, false); err != nil {
 				consecutiveCheckpointFailures++
 				logger.Error("checkpointer: error creating checkpoint", "error", err, "n_consecutive_failures", consecutiveCheckpointFailures)
 				if consecutiveCheckpointFailures >= 3 {

@@ -190,6 +190,17 @@ type NDBSource struct {
 	Version  uint32 `json:"version"`
 }
 
+type LastCheckpoint struct {
+	Version  int    `json:"version"`
+	Complete bool   `json:"complete"`
+	Error    string `json:"error,omitempty"`
+}
+
+type NDBVersionResponse struct {
+	CurrVersion    int             `json:"curr_version"`
+	LastCheckpoint *LastCheckpoint `json:"last_checkpoint,omitempty"`
+}
+
 type NDBCheckpointResponse struct {
 	Version       int  `json:"version"`
 	NewCheckpoint bool `json:"new_checkpoint"`

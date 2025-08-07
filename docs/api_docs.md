@@ -1,5 +1,18 @@
 an # API Documentation
 
+## **0. Health**
+**Description:** Health check endpoint. Returns status 200 on success.
+
+- **Method:** `GET`
+- **URL:** `/api/v1/health`
+
+### Example Usage:
+```bash
+curl -X GET http://localhost:8000/api/v1/health
+```
+
+---
+
 ## **1. Search**
 **Description:** Search for documents in the NeuralDB based on a query and constraints.
 
@@ -232,7 +245,7 @@ curl -X GET http://localhost:8000/api/v1/sources
 ---
 
 ## **6. Checkpoint**
-**Description:** Create a new checkpoint for the database. Only the leader can perform this action.
+**Description:** Create a new checkpoint for the database. Only the leader can perform this action. This is done asynchronously, to check the status of a checkpoint use the version endpoint.
 
 - **Method:** `POST`
 - **URL:** `/api/v1/checkpoint`
@@ -246,6 +259,37 @@ __Notes__
 {
   "version": 2,
   "new_checkpoint": true
+}
+```
+
+### Example Usage:
+```bash
+curl -X POST http://localhost:8000/api/v1/checkpoint
+```
+
+---
+
+## **7. Version**
+**Description:** Returns the current checkpoint version of the NeuralDB, as well as the information about the status of the most recent checkpoint push.
+
+- **Method:** `GET`
+- **URL:** `/api/v1/version`
+
+__Notes__
+- The `"last_checkpoint"` field will be omitted if there has not been a checkpoint, or if it is a follower instance.
+- The `"last_checkpoint.version"` field indicates the version of the checkpoint that is being or was created.
+- The `"last_checkpoint.complete"` field indicates the checkpoint has been successfully pushed, or failed.
+- The `"last_checkpoint.error"` field indicates the error if the checkpoint did not complete successfully. If the error field is not present then the checkpoint can be assumed to have completed successfully.
+
+### Example Response:
+```json
+{
+  "curr_version": 2,
+  "last_checkpoint": {
+    "version": 3,
+    "complete": true,
+    "error": "some error message"
+  }
 }
 ```
 

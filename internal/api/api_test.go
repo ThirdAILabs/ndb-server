@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -125,6 +126,14 @@ func callSources(backend http.Handler) ([]api.NDBSource, error) {
 	var response []api.NDBSource
 	if err := callBackendMethod(backend, http.MethodGet, "/api/v1/sources", nil, &response); err != nil {
 		return nil, fmt.Errorf("failed to call sources: %w", err)
+	}
+	return response, nil
+}
+
+func callVersion(backend http.Handler) (api.NDBVersionResponse, error) {
+	var response api.NDBVersionResponse
+	if err := callBackendMethod(backend, http.MethodGet, "/api/v1/version", nil, &response); err != nil {
+		return api.NDBVersionResponse{}, fmt.Errorf("failed to call version: %w", err)
 	}
 	return response, nil
 }
@@ -292,12 +301,28 @@ func TestLeaderOnly(t *testing.T) {
 
 		ckpt, err := callCheckpoint(router)
 		require.NoError(t, err)
-		assert.Equal(t, ckpt.Version, 1)
-		assert.Equal(t, ckpt.NewCheckpoint, true)
+		assert.Equal(t, 1, ckpt.Version, 1)
+		assert.Equal(t, true, ckpt.NewCheckpoint)
+
+		complete := false
+		for i := 0; i < 10; i++ {
+			ver, err := callVersion(router)
+			require.NoError(t, err)
+
+			assert.Equal(t, 1, ver.LastCheckpoint.Version)
+			assert.Empty(t, ver.LastCheckpoint.Error)
+
+			if ver.LastCheckpoint.Complete {
+				complete = true
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		assert.True(t, complete, "checkpoint did not complete in time")
 
 		ckpts2, err := checkpointer.List(slog.Default())
 		require.NoError(t, err)
-		assert.Equal(t, ckpts2, []api.Version{1})
+		assert.Equal(t, []api.Version{1}, ckpts2)
 	})
 }
 
@@ -318,10 +343,10 @@ func TestLeaderAndFollower(t *testing.T) {
 		MetadataTypes: map[string]string{"k1": api.MetadataTypeFloat, "k2": api.MetadataTypeBool, "k3": api.MetadataTypeInt, "k4": api.MetadataTypeString},
 	}))
 
-	ckpt, err := leader.PushCheckpoint(slog.Default())
+	ckpt, err := leader.PushCheckpoint(slog.Default(), false)
 	require.NoError(t, err)
-	assert.Equal(t, ckpt.Version, 1)
-	assert.Equal(t, ckpt.NewCheckpoint, true)
+	assert.Equal(t, 1, ckpt.Version)
+	assert.Equal(t, true, ckpt.NewCheckpoint)
 
 	follower, err := api.NewServer(checkpointer, false, t.TempDir())
 	require.NoError(t, err)
@@ -354,12 +379,38 @@ func TestLeaderAndFollower(t *testing.T) {
 			MetadataTypes: map[string]string{"k1": api.MetadataTypeString, "k2": api.MetadataTypeInt, "k3": api.MetadataTypeString},
 		}))
 
-		ckpt, err := leader.PushCheckpoint(slog.Default())
+		ckpt, err := callCheckpoint(leaderRouter)
 		require.NoError(t, err)
-		assert.Equal(t, ckpt.Version, 2)
-		assert.Equal(t, ckpt.NewCheckpoint, true)
+		assert.Equal(t, 2, ckpt.Version)
+		assert.Equal(t, true, ckpt.NewCheckpoint)
+
+		complete := false
+		for i := 0; i < 10; i++ {
+			ver, err := callVersion(leaderRouter)
+			require.NoError(t, err)
+
+			assert.Equal(t, 2, ver.LastCheckpoint.Version)
+			assert.Empty(t, ver.LastCheckpoint.Error)
+
+			if ver.LastCheckpoint.Complete {
+				complete = true
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		assert.True(t, complete, "checkpoint did not complete in time")
+
+		ver1, err := callVersion(followerRouter)
+		require.NoError(t, err)
+		assert.Equal(t, 1, ver1.CurrVersion)
+		assert.Nil(t, ver1.LastCheckpoint)
 
 		require.NoError(t, follower.PullLatestCheckpoint(slog.Default()))
+
+		ver2, err := callVersion(followerRouter)
+		require.NoError(t, err)
+		assert.Equal(t, 2, ver2.CurrVersion)
+		assert.Nil(t, ver2.LastCheckpoint)
 	})
 
 	t.Run("Search Checkpoint 2", func(t *testing.T) {
