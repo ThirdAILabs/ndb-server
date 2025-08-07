@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,8 +33,18 @@ type Server struct {
 
 	localCheckpointDir string
 	checkpointer       Checkpointer
-	currVersion        Version
-	dirty              bool
+	// currVersion is only updated with the lock held, however it is an atomic to allow
+	// for checking the version while a checkpoint is being pushed/pulled in the background
+	currVersion atomic.Int64
+	dirty       bool
+}
+
+func (s *Server) getVersion() Version {
+	return Version(s.currVersion.Load())
+}
+
+func (s *Server) setVersion(oldVersion, newVersion Version) bool {
+	return s.currVersion.CompareAndSwap(int64(oldVersion), int64(newVersion))
 }
 
 func localVersionPath(dir string, version Version) string {
@@ -83,13 +94,16 @@ func NewServer(checkpointer Checkpointer, leader bool, localCheckpointDir string
 		return nil, fmt.Errorf("failed to initialize neuralDB for version %v: %w", currVersion, err)
 	}
 
-	return &Server{
+	server := &Server{
 		ndb:                neuralDB,
 		leader:             leader,
 		localCheckpointDir: localCheckpointDir,
 		checkpointer:       checkpointer,
-		currVersion:        currVersion,
-	}, nil
+		dirty:              false,
+	}
+	server.currVersion.Store(int64(currVersion))
+
+	return server, nil
 }
 
 func (s *Server) Router() chi.Router {
@@ -379,9 +393,11 @@ func (s *Server) PushCheckpoint(logger *slog.Logger) (NDBCheckpointResponse, err
 		return NDBCheckpointResponse{}, CodedErrorf(http.StatusForbidden, "only leader can create checkpoints")
 	}
 
+	currVersion := s.getVersion()
+
 	if !s.dirty {
 		logger.Info("checkpointer: no changes to checkpoint, skipping")
-		return NDBCheckpointResponse{Version: int(s.currVersion), NewCheckpoint: false}, nil
+		return NDBCheckpointResponse{Version: int(currVersion), NewCheckpoint: false}, nil
 	}
 
 	if s.checkpointer == nil {
@@ -389,14 +405,20 @@ func (s *Server) PushCheckpoint(logger *slog.Logger) (NDBCheckpointResponse, err
 		return NDBCheckpointResponse{}, CodedErrorf(http.StatusInternalServerError, "checkpointer must be initialized to push checkpoints")
 	}
 
-	logger.Info("checkpointer: creating new checkpoint", "version", s.currVersion+1)
+	newVersion := currVersion + 1
+	logger.Info("checkpointer: creating new checkpoint", "version", newVersion)
 
-	newVersion := s.currVersion + 1
-	localVersionPath := localVersionPath(s.localCheckpointDir, newVersion)
+	newVersionPath := localVersionPath(s.localCheckpointDir, newVersion)
 
-	if err := s.ndb.Save(localVersionPath); err != nil {
+	if err := s.ndb.Save(newVersionPath); err != nil {
 		logger.Error("checkpointer: failed to save ndb state", "version", newVersion, "error", err)
 		return NDBCheckpointResponse{}, CodedError(http.StatusInternalServerError, fmt.Errorf("failed to save ndb state: %w", err))
+	}
+
+	newNdb, err := ndb.New(newVersionPath)
+	if err != nil {
+		logger.Error("checkpointer: failed to load ndb from new checkpoint", "version", newVersion, "error", err)
+		return NDBCheckpointResponse{}, fmt.Errorf("failed to load ndb from new checkpoint (version=%v): %w", newVersion, err)
 	}
 
 	sources, err := s.ndb.Sources()
@@ -407,15 +429,22 @@ func (s *Server) PushCheckpoint(logger *slog.Logger) (NDBCheckpointResponse, err
 
 	logger.Info("checkpointer: successfully saved ndb state", "version", newVersion, "path", localVersionPath)
 
-	if err := s.checkpointer.Upload(logger, newVersion, localVersionPath, sources); err != nil {
+	if err := s.checkpointer.Upload(logger, newVersion, newVersionPath, sources); err != nil {
 		logger.Error("checkpointer: failed to upload checkpoint", "version", newVersion, "error", err)
 		return NDBCheckpointResponse{}, fmt.Errorf("failed to upload checkpoint (version=%v): %w", newVersion, err)
 	}
 
 	logger.Info("checkpointer: successfully uploaded checkpoint", "version", newVersion)
 
-	s.currVersion = newVersion
+	s.ndb = newNdb
+	if !s.setVersion(currVersion, newVersion) {
+		panic(fmt.Sprintf("failed to update version from %d to %d", currVersion, newVersion))
+	}
 	s.dirty = false
+
+	if err := os.RemoveAll(localVersionPath(s.localCheckpointDir, currVersion)); err != nil {
+		logger.Error("checkpointer: failed to remove old checkpoint files", "version", currVersion, "error", err)
+	}
 
 	return NDBCheckpointResponse{Version: int(newVersion), NewCheckpoint: true}, nil
 }
@@ -452,15 +481,22 @@ func (s *Server) PullLatestCheckpoint(logger *slog.Logger) error {
 		return CodedErrorf(http.StatusInternalServerError, "checkpointer must be initialized to pull checkpoints")
 	}
 
+	if s.leader {
+		logger.Error("checkpointer: PullLatestCheckpoint should not be called on leader")
+		return CodedErrorf(http.StatusForbidden, "PullLatestCheckpoint should not be called on leader")
+	}
+
 	checkpoints, err := s.checkpointer.List(logger)
 	if err != nil {
 		logger.Error("checkpointer: error listing checkpoints", "error", err)
 		return fmt.Errorf("failed to list checkpoints: %w", err)
 	}
 
+	currVersion := s.getVersion()
+
 	latest := latestVersion(checkpoints)
-	if latest <= s.currVersion {
-		logger.Info("checkpointer: no new checkpoints found", "current_version", s.currVersion, "latest_version", latest)
+	if latest <= currVersion {
+		logger.Info("checkpointer: no new checkpoints found", "current_version", currVersion, "latest_version", latest)
 		return nil
 	}
 
@@ -478,16 +514,23 @@ func (s *Server) PullLatestCheckpoint(logger *slog.Logger) error {
 		return fmt.Errorf("failed to load checkpoint into ndb (version=%v): %w", latest, err)
 	}
 
-	if err := os.RemoveAll(localVersionPath(s.localCheckpointDir, s.currVersion)); err != nil {
-		logger.Error("checkpointer: failed to remove old checkpoint files", "version", s.currVersion, "error", err)
-	}
-
 	s.lock.Lock()
-	s.ndb = newNdb
-	s.currVersion = latest
-	s.lock.Unlock()
 
-	logger.Info("checkpointer: successfully loaded new checkpoint into ndb", "version", latest)
+	if s.setVersion(currVersion, latest) {
+		logger.Info("checkpointer: updated version", "old_version", currVersion, "new_version", latest)
+		s.ndb = newNdb
+		s.dirty = false // doesn't really matter since this should only be called on follower
+
+		s.lock.Unlock()
+
+		if err := os.RemoveAll(localVersionPath(s.localCheckpointDir, currVersion)); err != nil {
+			logger.Error("checkpointer: failed to remove old checkpoint files", "version", currVersion, "error", err)
+		}
+		logger.Info("checkpointer: successfully loaded new checkpoint into ndb", "version", latest)
+	} else {
+		s.lock.Unlock()
+		logger.Info("checkpointer: version update skipped due to version conflict", "old_version", currVersion, "new_version", latest, "current_version", s.getVersion())
+	}
 
 	return nil
 }
