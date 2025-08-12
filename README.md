@@ -20,8 +20,14 @@ Usage of ./main:
     	Local directory to store checkpoints (default "./checkpoints")
   -max-ckpts int
     	Maximum number of checkpoints to keep in S3 (default 10)
+  -tls
+    	Enable TLS for the server, ensure tls-crt and tls-key are specified correctly
+  -tls-crt string
+    	Path to TLS certificate file (default "/certs/server.crt")
+  -tls-key string
+    	Path to TLS key file (default "/certs/server.key")
   -port int
-    	Port to run the server on (default 80)
+    	Port to run the server on (default 80 for http or 443 for https if TLS is enabled)
 ```
 ### Running with Docker
 1. Build the docker image:
