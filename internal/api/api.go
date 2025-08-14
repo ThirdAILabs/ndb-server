@@ -255,7 +255,7 @@ func (s *Server) Insert(r *http.Request) (any, error) {
 		return nil, CodedErrorf(http.StatusUnprocessableEntity, "only CSV files are supported for insertion")
 	}
 
-	logger.Info("insert: received", "filename", metadata.Filename, "source_id", metadata.SourceId, "text_columns", metadata.TextColumns, "metadata_dtypes", metadata.MetadataTypes)
+	logger.Info("insert: received", "filename", metadata.Filename, "source_id", metadata.SourceId, "text_columns", metadata.TextColumns, "metadata_dtypes", metadata.MetadataTypes, "upsert", metadata.Upsert)
 
 	chunks, chunkMetadata, err := ParseContent(content, metadata.TextColumns, metadata.MetadataTypes)
 	if err != nil {
@@ -280,6 +280,14 @@ func (s *Server) Insert(r *http.Request) (any, error) {
 		return nil, CodedErrorf(http.StatusInternalServerError, "ndb insert error %w", err)
 	}
 
+	if metadata.Upsert && metadata.SourceId != nil {
+		if err := s.ndb.Delete(docId, true); err != nil {
+			logger.Error("insert: error during upsert delete", "error", err, "source_id", docId)
+			return nil, CodedErrorf(http.StatusInternalServerError, "ndb upsert delete error %w", err)
+		}
+		logger.Info("insert: upsert delete complete", "source_id", docId)
+	}
+
 	s.dirty = true
 
 	logger.Info("insert: complete", "source_id", docId)
@@ -299,13 +307,13 @@ func (s *Server) Delete(r *http.Request) (any, error) {
 		return nil, CodedErrorf(http.StatusForbidden, "only leader can delete documents")
 	}
 
-	logger.Info("delete: received", "ids", deleteParams.SourceIds)
+	logger.Info("delete: received", "ids", deleteParams.SourceIds, "keep_latest_version", deleteParams.KeepLatestVersion)
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	for _, id := range deleteParams.SourceIds {
-		if err := s.ndb.Delete(id, false); err != nil {
+		if err := s.ndb.Delete(id, deleteParams.KeepLatestVersion); err != nil {
 			logger.Error("delete: error", "error", err, "id", id)
 			return nil, CodedErrorf(http.StatusInternalServerError, "ndb delete error %w", err)
 		}

@@ -169,10 +169,12 @@ type NDBDocumentMetadata struct {
 	SourceId      *string           `json:"source_id"`
 	TextColumns   []string          `json:"text_columns"`
 	MetadataTypes map[string]string `json:"metadata_types"`
+	Upsert        bool              `json:"upsert"`
 }
 
 type NDBDeleteParams struct {
-	SourceIds []string `json:"source_ids"`
+	SourceIds         []string `json:"source_ids"`
+	KeepLatestVersion bool     `json:"keep_latest_version"`
 }
 
 type QueryIdPair struct {
