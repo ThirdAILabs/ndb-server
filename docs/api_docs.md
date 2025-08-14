@@ -107,13 +107,16 @@ curl -X POST http://localhost:8000/api/v1/search \
   "metadata_types": {
     "author": "str",
     "year": "int"
-  }
+  },
+  "upsert": false
 }
 ```
 
 __Notes__
+- The `"source_id"` arg is optional, if not specified a UUID will be generated to identify the source.
 - All columns intended to be used as metadata must be specified in `"metadata_types"`
 - The values in the metadata types map must be the same as supported in the dtype field for constraints (see above).
+- The `"upsert"` arg indicates if old versions of the source should be removed after the insert. This only applies if the `"source_id"` is specified. The default value of this is `false`. Example: if document with id A exists in the ndb with version 1, and a new document with id A is inserted and upsert is true, then it will insert the new document with id A and version 2, then delete version 1 once the insert completes successfully. 
 
 ### Example Response:
 ```json
@@ -148,9 +151,12 @@ curl -X POST http://localhost:8000/api/v1/insert \
 ### Example Request:
 ```json
 {
-  "source_ids": ["12345", "67890"]
+  "source_ids": ["12345", "67890"], 
+  "keep_latest_version": false
 }
 ```
+__Notes__
+- The arg `"keep_latest_version"` indicates if old versions of the sources should be deleted. If true and a give source has versions `[1, 2, 3]` then after the delete it will only have versions `[3]`. The default value of this arg is `false`.
 
 ### Example Response:
 ```json
